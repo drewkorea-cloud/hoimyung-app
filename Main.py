@@ -478,7 +478,7 @@ if "Cooling" in program_mode:  # [수정] 첫 번째 모듈이므로 elif가 아
     ])
 
     # ======================================================================
-    # Tab 1: Water Balance (기존 유지)
+    # Tab 1: Water Balance (수정됨: 증발량 표시 추가 및 2x2 레이아웃 적용)
     # ======================================================================
     with tab1:
         st.subheader("1. Cooling Tower Design Data")
@@ -508,30 +508,42 @@ if "Cooling" in program_mode:  # [수정] 첫 번째 모듈이므로 elif가 아
             hti = 999.9
 
         st.markdown("---")
-        # [시각화] 도넛 차트
-        c_chart, c_metric = st.columns([1, 1])
+        
+        # [시각화 & 요약] 화면 분할
+        c_chart, c_metric = st.columns([1.2, 1]) # 차트 영역을 조금 더 넓게
+        
         with c_chart:
+            # 도넛 차트
             labels = ['Evaporation (증발)', 'Blowdown (배수)', 'Windage (비산)']
             values = [evap, blowdown, windage]
-            fig_bal = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4, marker_colors=['#3498DB', '#E74C3C', '#95A5A6'])])
-            fig_bal.update_layout(title_text="Water Usage Breakdown", height=300, margin=dict(t=30, b=0, l=0, r=0))
+            fig_bal = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4, 
+                                           marker_colors=['#3498DB', '#E74C3C', '#95A5A6'])])
+            fig_bal.update_layout(title_text="Water Usage Breakdown", height=320, margin=dict(t=40, b=10, l=10, r=10))
             st.plotly_chart(fig_bal, use_container_width=True)
 
         with c_metric:
             st.subheader("📊 Operation Summary")
-            st.metric("보급수량 (Total Make-up)", f"{makeup:.1f} m³/hr")
-            st.metric("배수량 (Blowdown)", f"{blowdown:.1f} m³/hr")
             
-            ht_msg = "✅ Good"
-            ht_color = "normal"
-            if hti > 48: 
-                ht_msg = "⚠️ Long"
-                ht_color = "inverse"
-            elif hti < 4: 
-                ht_msg = "⚠️ Short"
-                ht_color = "inverse"
+            # [수정] 4가지 지표를 2x2 격자로 배치하여 가독성 향상
+            op_m1, op_m2 = st.columns(2)
             
-            st.metric("반감기 (Half Life)", f"{hti:.1f} hr", delta=ht_msg, delta_color=ht_color)
+            with op_m1:
+                st.metric("증발량 (Evaporation)", f"{evap:.1f} m³/hr", help="냉각 부하에 비례하여 증발하는 물의 양")
+                st.metric("보급수량 (Make-up)", f"{makeup:.1f} m³/hr", help="증발+배수+비산을 채워주는 물")
+            
+            with op_m2:
+                st.metric("배수량 (Blowdown)", f"{blowdown:.1f} m³/hr", help="농축 관리를 위해 버리는 물")
+                
+                # 반감기 상태 판정
+                ht_msg = "✅ Good"
+                ht_color = "normal"
+                if hti > 48: 
+                    ht_msg = "⚠️ Long"
+                    ht_color = "inverse"
+                elif hti < 4: 
+                    ht_msg = "⚠️ Short"
+                    ht_color = "inverse"
+                st.metric("반감기 (Half Life)", f"{hti:.1f} hr", delta=ht_msg, delta_color=ht_color, help="약품 농도가 절반이 되는 시간")
 
   # ======================================================================
     # Tab 2: Water Chemistry (수정됨: 중복 제거 및 상세 진단 통합)
