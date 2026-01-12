@@ -429,22 +429,27 @@ def create_gauge(value, title, min_v, max_v, steps):
     return fig
 
 
-
 # --- 2. 사이드바 메뉴 ---
-
 with st.sidebar:
-
-    st.title("💧 HOIMYUNG")
-
+    st.title("💧 HOIMYUNG WATERZEN")
     st.subheader("Water Master Pro")
-
-    program_mode = st.radio("Select Module:", ["1. Cooling Expert", "2. Boiler Master", "3. RO Master Pro", "4. Wastewater Reuse"], key="main_menu_mode")
-
+    
+    # [수정 포인트] 리스트 괄호 []와 함수 괄호 ()가 정확히 닫혀야 합니다.
+    program_mode = st.radio(
+        "Select Module:", 
+        [
+            "1. Cooling Expert", 
+            "2. Boiler Master", 
+            "3. RO Master Pro", 
+            "4. Wastewater Reuse", 
+            "5. Data Analytics"
+        ], 
+        key="main_menu_mode"
+    )
+    
     st.markdown("---")
-
     st.info("💡 **Tip:** 값을 입력하고 '적용' 버튼을 누르면 AI 진단이 시작됩니다.")
-
-    st.caption("Authorized by **Parker**")
+    st.caption("Authorized by **PARKER**")
 
 # ==============================================================================
 # [Module 1] Cooling Expert (냉각수: 들여쓰기 및 문법 오류 수정 완료)
@@ -1472,12 +1477,11 @@ elif program_mode == "3. RO Master Pro":
                 st.info("🦠 **유기물 세정 (Alkaline Cleaning)**: 미생물, 실리카 제거 (pH 11.0~12.0)")
             
             st.markdown(f"**💧 약품 희석 비율 (5% 기준):** 물 1m³ 당 약품 **50kg** 투입")
-
 # ==============================================================================
-# [Module 4] Wastewater Expert (설계 및 엔지니어링 기능 통합)
+# [Module 4] Wastewater Expert (Engineering Logic Reinforced & Bug Fixed)
 # ==============================================================================
 elif "Wastewater" in program_mode:
-    # 1. 초기 데이터 및 세션 설정
+    # 1. 초기 데이터 설정
     if 'waste_data' not in st.session_state:
         st.session_state.waste_data = pd.DataFrame({
             'Parameter': ['pH', 'TDS (ppm)', 'SS (ppm)', 'COD (ppm)', 'Cl (ppm)', 'Hardness (Ca, ppm)', 'Oil & Grease (ppm)'],
@@ -1487,7 +1491,7 @@ elif "Wastewater" in program_mode:
     st.title("♻️ Wastewater Reuse Engineering")
     st.info("공정 시뮬레이션 및 RO/AFM 설비 설계(Design Calculation) 통합 시스템")
     
-    # 탭 확장: [시뮬레이션] [설계 계산] [약품 선정] [경제성 평가]
+    # 탭 구성
     tab_ww_sim, tab_ww_design, tab_ww_chem, tab_ww_roi = st.tabs([
         "1. Process Simulation", 
         "2. Equipment Design (RO/AFM)", 
@@ -1496,7 +1500,7 @@ elif "Wastewater" in program_mode:
     ])
 
     # --------------------------------------------------------------------------
-    # Tab 1: Process Simulation (기존 기능 유지 + 오류 수정)
+    # Tab 1: Process Simulation (에러 수정 완료: 포맷팅 적용 범위 제한)
     # --------------------------------------------------------------------------
     with tab_ww_sim:
         st.subheader("🏗️ Process Water Quality Prediction")
@@ -1519,119 +1523,120 @@ elif "Wastewater" in program_mode:
                 
                 applied_steps = ["Raw Water"]
                 
-                # DAF / Softening
+                # 공정별 제거율 적용
                 if curr_oil > 10 or curr_ss > 50:
-                    applied_steps.append("DAF (가압부상)")
+                    applied_steps.append("DAF")
                     curr_ss *= 0.15; curr_cod *= 0.7; curr_oil *= 0.1
                 elif curr_ca > 300:
-                    applied_steps.append("Softening (연수화)")
+                    applied_steps.append("Softening")
                     curr_ca *= 0.2; curr_ss *= 0.5
                 
-                # AFM Filter
-                applied_steps.append("AFM Filter (정밀여과)")
+                applied_steps.append("AFM Filter")
                 curr_ss = min(curr_ss * 0.1, 2.0)
                 
-                # RO System
                 if curr_tds > 1000 or w_val['Cl (ppm)'] > 250:
-                    applied_steps.append("RO System (역삼투)")
+                    applied_steps.append("RO System")
                     curr_tds *= 0.02; curr_ca *= 0.01; curr_cod *= 0.05
 
-                applied_steps.append("Product Water")
-
-                # 결과 표시
+                applied_steps.append("Product")
                 st.info(" ➡️ ".join([f"**[{s}]**" for s in applied_steps]))
                 
+                # [수정 포인트 1] 데이터프레임 생성 및 포맷팅 에러 해결
                 res_df = pd.DataFrame({
                     'Item': ['TDS', 'SS', 'COD', 'Hardness', 'Oil'],
                     'Raw (ppm)': [w_val['TDS (ppm)'], w_val['SS (ppm)'], w_val['COD (ppm)'], w_val['Hardness (Ca, ppm)'], w_val['Oil & Grease (ppm)']],
                     'Product (ppm)': [curr_tds, curr_ss, curr_cod, curr_ca, curr_oil]
                 })
                 
-                # [수정됨] 전체 포맷팅 대신 숫자 컬럼만 지정하여 ValueError 방지
+                # subset을 사용하여 숫자 컬럼만 포맷팅 적용
                 st.markdown("#### ✨ 예상 처리 수질 비교")
-                st.dataframe(res_df.style.format("{:.1f}", subset=['Raw (ppm)', 'Product (ppm)']), 
-                             hide_index=True, use_container_width=True)
+                st.dataframe(
+                    res_df.style.format("{:.1f}", subset=['Raw (ppm)', 'Product (ppm)']), 
+                    hide_index=True, 
+                    use_container_width=True
+                )
                 
-                if curr_tds < 100 and curr_ss < 1: st.success("✅ **판정:** 고품질 재이용 가능 (공정/보일러급)")
-                elif curr_ss < 5: st.warning("⚠️ **판정:** 중급 재이용 가능 (조경/청소급)")
-                else: st.error("🚨 **판정:** 추가 처리 필요")
-            else:
-                st.info("👈 원수 데이터 입력 후 시뮬레이션을 실행하세요.")
+                if curr_tds < 100 and curr_ss < 1: st.success("✅ **판정:** 고품질 재이용 가능")
+                else: st.warning("⚠️ **판정:** 추가 처리가 필요할 수 있습니다.")
 
     # --------------------------------------------------------------------------
-    # Tab 2: Equipment Design (신규 추가: RO & AFM 설계)
+    # Tab 2: Equipment Design (엔지니어링 로직 보강 + 에러 수정)
     # --------------------------------------------------------------------------
     with tab_ww_design:
         st.subheader("⚙️ Equipment Design Calculator")
-        
         des_tabs = st.tabs(["💧 RO System Design", "⏳ AFM Filter Design"])
         
-        # [2-1] RO 설계 계산기 (문서 'RO 시스템 시간당 50Ton 설계.docx' 기반)
+        # [2-1] RO 설계: 시나리오 비교 기능 추가
         with des_tabs[0]:
-            st.markdown("#### 1. RO Membrane System Calculation")
+            st.markdown("#### 1. RO Design Optimization (Conservative vs Economic)")
+            st.caption("문서 기준: 20 LMH(안정적) vs 25 LMH(경제적) 설계 비교")
             
             c_ro1, c_ro2 = st.columns(2)
             with c_ro1:
-                ro_prod = st.number_input("목표 생산량 (Product Flow, m3/hr)", value=50.0)
-                ro_rec = st.slider("설계 회수율 (Recovery, %)", 50, 85, 75)
-                ro_flux = st.number_input("설계 Flux (LMH)", value=25.0, help="표준 25 LMH (오염도 높으면 20 LMH 권장)")
-                ro_area = 37.0 # 8인치 표준 면적 (고정)
-
+                ro_prod = st.number_input("목표 생산량 (m3/hr)", value=50.0)
+                ro_rec = st.slider("설계 회수율 (%)", 50, 85, 75)
             with c_ro2:
-                # 계산 로직 [cite: 9-13]
-                # 1. 공급 유량 = 생산량 / 회수율
-                feed_flow = ro_prod / (ro_rec / 100.0)
-                
-                # 2. 필요 멤브레인 수 = (생산량 * 1000) / Flux / 면적
-                total_area = (ro_prod * 1000) / ro_flux
-                mem_qty = math.ceil(total_area / ro_area)
-                
-                # 3. 베셀 수량 (6 element/vessel 기준) [cite: 15]
-                vessel_qty = math.ceil(mem_qty / 6)
-                
-                # 4. 펌프 및 탱크 용량 (여유율 1.15, 체류시간 1hr 적용) [cite: 20, 29]
-                pump_capa = feed_flow * 1.15
-                tank_capa = feed_flow * 1.0 # 1시간 체류 기준
-                
-                # 결과 표시
-                st.success(f"**필요 멤브레인 수량: {mem_qty} ea** (8 inch)")
-                st.info(f"**권장 베셀 수량:** {vessel_qty} ea (6-element vessel)")
-                
-            st.markdown("---")
-            st.markdown("#### 📋 BOP 설비 사양 (Balance of Plant)")
-            
-            bop1, bop2 = st.columns(2)
-            bop1.metric("필요 원수량 (Feed Flow)", f"{feed_flow:.1f} m³/hr")
-            bop1.metric("원수 펌프 용량 (Pump)", f"{pump_capa:.1f} m³/hr", "여유율 15% 포함")
-            
-            bop2.metric("농축수 발생량 (Reject)", f"{feed_flow - ro_prod:.1f} m³/hr")
-            bop2.metric("원수 탱크 용량 (Tank)", f"{math.ceil(tank_capa/10)*10} m³", "체류시간 1hr 기준")
+                # Flux 입력 대신 시나리오 비교로 변경
+                st.info(f"💡 **Flux 전략:** 폐수 재이용 시 오염 부하를 고려하여 **20~25 LMH** 범위에서 결정합니다.")
 
-        # [2-2] AFM 필터 설계 (문서 'AFM충전시 높이.docx' 기반)
+            # 비교 계산 로직
+            ro_area = 37.0
+            feed_flow = ro_prod / (ro_rec / 100.0)
+            
+            # Scenario A: 20 LMH (Conservative)
+            qty_20 = math.ceil((ro_prod * 1000) / 20.0 / ro_area)
+            vess_20 = math.ceil(qty_20 / 6)
+            
+            # Scenario B: 25 LMH (Economic)
+            qty_25 = math.ceil((ro_prod * 1000) / 25.0 / ro_area)
+            vess_25 = math.ceil(qty_25 / 6)
+            
+            st.markdown("---")
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("### 🛡️ Scenario A: 안정 설계 (20 LMH)")
+                st.metric("필요 멤브레인", f"{qty_20} ea", f"+{qty_20 - qty_25} ea (vs B)")
+                st.metric("필요 베셀 (6-element)", f"{vess_20} ea")
+                st.success("✅ **장점:** 오염(Fouling) 저항성 우수, 세정 주기 연장")
+            
+            with col_b:
+                st.markdown("### 💰 Scenario B: 경제 설계 (25 LMH)")
+                st.metric("필요 멤브레인", f"{qty_25} ea", "Standard")
+                st.metric("필요 베셀 (6-element)", f"{vess_25} ea")
+                st.warning("⚠️ **주의:** 초기 투자비는 저렴하나, 막 오염 가능성 증가")
+
+        # [2-2] AFM 설계: Freeboard 체크 기능 + 에러 수정
         with des_tabs[1]:
-            st.markdown("#### 2. AFM® Filter Media Calculation")
-                        
+            st.markdown("#### 2. AFM® Filter Design (Safety Check)")
+            
             c_afm1, c_afm2 = st.columns(2)
             with c_afm1:
-                tank_d = st.number_input("필터 탱크 직경 (Diameter, mm)", value=760)
-                bed_h = st.number_input("여과층 높이 (Bed Height, mm)", value=1200, help="권장: 1000 ~ 1200mm")
-            
+                tank_d = st.number_input("필터 탱크 직경 (mm)", value=760)
+                tank_h = st.number_input("필터 탱크 전체 높이 (Total Height, mm)", value=1800, help="Freeboard 계산용")
             with c_afm2:
-                # 계산 로직 [cite: 337-340]
-                radius_m = (tank_d / 2) / 1000.0
-                height_m = bed_h / 1000.0
+                bed_h = st.number_input("여과재 충진 높이 (Bed Height, mm)", value=1200, help="권장: 1000~1200mm")
                 
-                area = math.pi * (radius_m ** 2)
-                total_vol_l = area * height_m * 1000.0
-                
-                st.info(f"**총 여과재 필요 부피:** {total_vol_l:.1f} Liters")
-                st.caption(f"필터 단면적: {area:.2f} m²")
-
-            st.markdown("---")
-            st.markdown("#### 📦 Grade별 충진 상세 (Ratio & Weight)")
+            # Freeboard 계산 및 안전 진단
+            freeboard = tank_h - bed_h
+            freeboard_ratio = (freeboard / bed_h) * 100
             
-            # Grade별 비율 및 밀도 설정 (문서 기준) [cite: 332-335, 356-359]
-            # Grade 0 (20%, 1.28), Grade 1 (50%, 1.25), Grade 2 (15%, 1.23), Grade 3 (15%, 1.23)
+            st.markdown("---")
+            c_chk1, c_chk2 = st.columns(2)
+            c_chk1.metric("확보된 여유고 (Freeboard)", f"{freeboard} mm", f"{freeboard_ratio:.1f}% (vs Bed)")
+            
+            with c_chk2:
+                if freeboard_ratio < 30:
+                    st.error("🚨 **위험:** 여유 공간 부족! (권장: 30% 이상)")
+                    st.caption("역세척 시 여과재가 유실될 수 있습니다. 충진 높이를 낮추거나 탱크를 키우세요.")
+                else:
+                    st.success("✅ **안전:** 역세척 팽창 공간(Freeboard)이 충분합니다.")
+            
+            # 물량 산출 (기존 로직 유지)
+            radius_m = (tank_d / 2) / 1000.0
+            total_vol_l = math.pi * (radius_m ** 2) * (bed_h / 1000.0) * 1000.0
+            
+            # Grade별 상세
             afm_specs = [
                 {"Grade": "Grade 0 (Top)", "Ratio": 0.20, "Density": 1.28},
                 {"Grade": "Grade 1", "Ratio": 0.50, "Density": 1.25},
@@ -1639,62 +1644,136 @@ elif "Wastewater" in program_mode:
                 {"Grade": "Grade 3 (Bottom)", "Ratio": 0.15, "Density": 1.23},
             ]
             
-            afm_res = []
-            total_kg = 0
-            
+            res_list = []
             for spec in afm_specs:
-                vol = total_vol_l * spec["Ratio"]
-                wgt = vol * spec["Density"]
-                total_kg += wgt
-                afm_res.append({
-                    "Grade": spec["Grade"],
-                    "Ratio (%)": f"{spec['Ratio']*100:.0f}%",
-                    "Volume (L)": vol,
-                    "Weight (kg)": wgt
-                })
-            
-            df_afm = pd.DataFrame(afm_res)
+                v = total_vol_l * spec["Ratio"]
+                w = v * spec["Density"]
+                res_list.append({"Grade": spec["Grade"], "Vol (L)": v, "Wgt (kg)": w})
+                
+            # [수정 포인트 2] 여기도 마찬가지로 숫자 컬럼만 포맷팅
+            st.markdown("#### 📦 충진 물량 산출서")
+            df_afm_calc = pd.DataFrame(res_list)
             st.dataframe(
-                df_afm.style.format({"Volume (L)": "{:.1f}", "Weight (kg)": "{:.1f}"}), 
+                df_afm_calc.style.format({"Vol (L)": "{:.1f}", "Wgt (kg)": "{:.1f}"}), 
                 hide_index=True, 
                 use_container_width=True
             )
-            
-            st.success(f"🚚 **총 발주 중량:** 약 {total_kg:.1f} kg")
 
     # --------------------------------------------------------------------------
-    # Tab 3: Chemical Selection (기존 유지)
+    # Tab 3 & 4 (기존 코드 유지)
     # --------------------------------------------------------------------------
     with tab_ww_chem:
         st.subheader("💊 Waste Treatment Chemicals")
         wc1, wc2 = st.columns(2)
         with wc1:
-            st.markdown("**1. 응집제 (Coagulant)**")
             st.selectbox("Coagulant", ["PAC (Standard)", "FeCl3", "Organic"], key="ww_sel_c")
             st.selectbox("Polymer", ["Anionic", "Cationic"], key="ww_sel_p")
         with wc2:
-            st.markdown("**2. 특수 약품**")
             st.selectbox("Defoamer", ["Silicone", "Non-Silicone"], key="ww_sel_d")
             st.selectbox("Odor Control", ["None", "Bio", "Chemical"], key="ww_sel_o")
 
-    # --------------------------------------------------------------------------
-    # Tab 4: ROI & Economics (기존 유지)
-    # --------------------------------------------------------------------------
     with tab_ww_roi:
         st.subheader("💰 Reused Water Economics")
         rc1, rc2 = st.columns(2)
         with rc1:
-            q_day_ww = st.number_input("일일 재이용량 (m3/day)", 1000.0, key="ww_q_input")
-            cost_tap_ww = st.number_input("공업용수 단가 (원/m3)", 1500, key="ww_cost_tap")
+            q_day = st.number_input("일일 재이용량 (m3/day)", 1000.0, key="ww_q")
+            cost_tap = st.number_input("공업용수 단가 (원/m3)", 1500, key="ww_tap")
         with rc2:
-            cost_op_ww = st.number_input("예상 운영비 (원/m3)", 400, key="ww_cost_op")
-            invest_ww = st.number_input("시설 투자비 (백만원)", 300.0, key="ww_invest")
+            cost_op = st.number_input("운영비 (원/m3)", 400, key="ww_op")
+            invest = st.number_input("투자비 (백만원)", 300.0, key="ww_inv")
+            
+        saving = q_day * (cost_tap - cost_op) * 350
+        payback = (invest * 1e6) / saving if saving > 0 else 0
+        st.metric("연간 절감액", f"{int(saving/1e6):,} 백만원")
+        st.metric("회수 기간", f"{payback:.1f} 년")
+# ==============================================================================
+# [Module 5] Data Analytics (통합 트렌드 분석 마스터)
+# ==============================================================================
+elif "Data" in program_mode:
+    st.title("📈 Ultimate Trend Master")
+    st.info("화학적 수질(pH, Cl, Fe)과 물리적 운전(유속, 온도, 차압) 데이터를 통합 분석합니다.")
 
-        saving_ww = q_day_ww * (cost_tap_ww - cost_op_ww) * 350
-        payback_ww = (invest_ww * 1000000) / saving_ww if saving_ww > 0 else 0
-        
-        st.divider()
-        rm1, rm2 = st.columns(2)
-        rm1.metric("연간 예상 절감액", f"{int(saving_ww/1000000):,} 백만원")
-        rm2.metric("투자비 회수 기간", f"{payback_ww:.1f} 년")
+    # 1. 파일 업로드
+    with st.container(border=True):
+        uploaded_file = st.file_uploader("📂 통합 운전 일지 업로드 (Excel/CSV)", type=['xlsx', 'xls', 'csv'])
 
+    if uploaded_file:
+        try:
+            # 데이터 로드
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+            
+            # 컬럼 리스트 확보
+            cols = df.columns.tolist()
+            
+            # [필수] 날짜 컬럼 지정
+            c_date, c_dummy = st.columns([1, 2])
+            with c_date:
+                date_col = st.selectbox("📅 날짜/시간 컬럼 (Time Axis)", ["선택"] + cols)
+            
+            if date_col != "선택":
+                # 데이터 전처리
+                df[date_col] = pd.to_datetime(df[date_col])
+                df = df.sort_values(by=date_col)
+                
+                st.divider()
+                st.subheader("2. 테마별 심층 분석 (Deep Dive Analysis)")
+
+                # (A) 부식 (Corrosion)
+                with st.expander("🔴 [부식] Corrosion & Physical Stress", expanded=True):
+                    c1, c2 = st.columns([1, 3])
+                    with c1:
+                        default_corr = [c for c in cols if any(x in c.upper() for x in ['FE', 'IRON', 'CL', 'SO4', 'PH', 'TEMP', 'FLOW', 'VEL'])]
+                        corr_items = st.multiselect("부식 영향 인자 (Multi-Select)", cols, default=default_corr)
+                    with c2:
+                        if corr_items:
+                            fig_corr = px.line(df, x=date_col, y=corr_items, title="Corrosion Factors", markers=True)
+                            fig_corr.update_layout(height=400, hovermode="x unified")
+                            st.plotly_chart(fig_corr, use_container_width=True)
+                            st.warning("💡 **Check:** 온도(Temp)나 유속(Flow)이 급변할 때 철분(Fe)이 튀는지 확인하십시오.")
+
+                # (B) 스케일 (Scale)
+                with st.expander("⚪ [스케일] Scale & Heat Efficiency", expanded=True):
+                    c1, c2 = st.columns([1, 3])
+                    with c1:
+                        default_scale = [c for c in cols if any(x in c.upper() for x in ['CA', 'HARD', 'ALK', 'SIO2', 'PO4', 'DELTA', 'DT', 'DIFF'])]
+                        scale_items = st.multiselect("스케일 및 열효율 인자", cols, default=default_scale)
+                    with c2:
+                        if scale_items:
+                            fig_scale = px.line(df, x=date_col, y=scale_items, title="Scale Potential", markers=True)
+                            fig_scale.update_layout(height=400, hovermode="x unified")
+                            st.plotly_chart(fig_scale, use_container_width=True)
+                            st.info("💡 **Check:** 약품 농도는 정상인데 Delta T(온도차)가 줄어든다면 스케일입니다.")
+
+                # (C) 미생물 (Bio)
+                with st.expander("🟢 [미생물] Bio-fouling & Disinfection Limit", expanded=True):
+                    c1, c2 = st.columns([1, 3])
+                    with c1:
+                        default_bio = [c for c in cols if any(x in c.upper() for x in ['RES', 'CL', 'ORP', 'BIO', 'TOC', 'COD', 'NIT', 'PH'])]
+                        bio_items = st.multiselect("살균 및 영양분 인자", cols, default=default_bio)
+                    with c2:
+                        if bio_items:
+                            fig_bio = px.line(df, x=date_col, y=bio_items, title="Bio-Activity", markers=True)
+                            ph_cols = [c for c in df.columns if 'PH' in c.upper()]
+                            if ph_cols:
+                                target_ph_col = ph_cols[0]
+                                if not df[df[target_ph_col] > 8.0].empty:
+                                    st.error(f"🚨 **pH 경고:** pH 8.0 이상 구간에서는 염소 살균력이 급감합니다.")
+                            fig_bio.update_layout(height=400, hovermode="x unified")
+                            st.plotly_chart(fig_bio, use_container_width=True)
+
+                # (D) 상관분석
+                st.divider()
+                st.subheader("3. 인과관계 증명 (Root Cause Analysis)")
+                c_scat1, c_scat2 = st.columns(2)
+                with c_scat1: x_axis = st.selectbox("원인 인자 (X-Axis)", ["선택"] + cols, index=0)
+                with c_scat2: y_axis = st.selectbox("결과 인자 (Y-Axis)", ["선택"] + cols, index=0)
+                
+                if x_axis != "선택" and y_axis != "선택":
+                    fig_scat = px.scatter(df, x=x_axis, y=y_axis, trendline="ols", title=f"Correlation: {x_axis} vs {y_axis}")
+                    st.plotly_chart(fig_scat, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"파일 분석 중 오류가 발생했습니다: {e}")
