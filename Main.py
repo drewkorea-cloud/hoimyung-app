@@ -310,14 +310,14 @@ if "Cooling" in program_mode:
                     ht_msg = "⚠️ Short"
                     ht_color = "inverse"
                 st.metric("반감기 (Half Life)", f"{hti:.1f} hr", delta=ht_msg, delta_color=ht_color, help="약품 농도가 절반이 되는 시간")
-# ======================================================================
-    # Tab 2: Water Chemistry (pH 8.3 Breakpoint 로직 적용 및 오류 수정)
+
+    # ======================================================================
+    # Tab 2: Water Chemistry (pH 수식 변경)
     # ======================================================================
     with tab2:
         st.subheader("2. Prediction & Diagnosis Simulator")
         st.markdown("보충수(Make-up) 수질을 기반으로 농축 후 순환수 수질을 **예측**하고 **5대 지수**를 진단합니다.")
 
-        # 데이터 초기화 (세션 상태 확인)
         if 'makeup_data' not in st.session_state:
             st.session_state.makeup_data = pd.DataFrame({
                 'Item': ['pH', 'Cond (µS)', 'Ca-H (ppm)', 'Mg-H (ppm)', 'M-Alk (ppm)', 'Cl (ppm)', 'SO4 (ppm)', 'SiO2 (ppm)'],
@@ -336,9 +336,6 @@ if "Cooling" in program_mode:
             sim_temp = st.slider("Temperature (°C)", 10.0, 60.0, 35.0, 1.0, key="sim_temp")
             sim_turbidity = st.number_input("예상 탁도 (NTU) - Deposit 예측용", 0.0, 100.0, 10.0)
             
-            st.divider()
-            
-            # --- [핵심 수정: pH 예측 로직 통합] ---
             use_acid = st.checkbox("Acid Feed (황산 주입 모드)", value=False)
 
             if use_acid:
@@ -357,21 +354,26 @@ if "Cooling" in program_mode:
                 if cycle_alk < 1: cycle_alk = 1.0
 
                 # 3. pH 8.3 Breakpoint Logic (글로벌 표준)
-                # 알칼리도 약 370ppm(pH 8.3)을 기준으로 탄산(CO3) 완충 효과 반영
+                # 알칼리도가 일정 수준(약 350~400ppm)을 넘으면 pH 8.3을 돌파하며 탄산(CO3) 완충 구간에 진입합니다.
+                # Threshold Point: Puckorius 식 기준 pH 8.3이 되는 Alk 값 = 약 370 ppm
+                
                 alk_threshold = 370.0 
 
                 if cycle_alk < alk_threshold:
                     # [Case A: pH < 8.3 구간] Bicarbonate Dominant
-                    # Formula: pH = 2.0 * log10(Alk) + 3.15
+                    # 기울기가 더 가파른 수식 적용 (저농축 구간)
+                    # Formula: pH = 2.0 * log10(Alk) + 3.15 (보정식)
                     est_ph_raw = (2.0 * math.log10(cycle_alk)) + 3.15
-                    phase_msg = "HCO3 Phase"
+                    phase_msg = "Bicarbonate Phase (pH < 8.3)"
                 else:
-                    # [Case B: pH >= 8.3 구간] Carbonate Buffer
-                    # Formula: pH = 1.465 * log10(Alk) + 4.54 (Puckorius Eq)
+                    # [Case B: pH >= 8.3 구간] Carbonate Buffering
+                    # 기울기가 완만해지는 Puckorius 평형 수식 적용 (고농축 구간)
+                    # Formula: pH = 1.465 * log10(Alk) + 4.54
                     est_ph_raw = (1.465 * math.log10(cycle_alk)) + 4.54
-                    phase_msg = "CO3 Buffer Phase"
+                    phase_msg = "Carbonate Buffer Phase (pH ≥ 8.3)"
 
                 # 4. 물리적 한계 (Ceiling)
+                # 대기 개방형 냉각탑은 통상 pH 9.3 이상 상승하기 어려움 (탄산염 평형)
                 est_ph = min(est_ph_raw, 9.3)
 
                 # 5. 결과 표시
@@ -379,18 +381,16 @@ if "Cooling" in program_mode:
                 
                 # 분석 멘트
                 if est_ph >= 8.3:
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **탄산 완충 구간** (pH 상승 둔화)")
+                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **탄산(CO3) 완충 구간** 진입 (pH 상승 둔화)")
                 else:
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **중탄산 지배 구간** (pH 상승 가속)")
+                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **중탄산(HCO3) 지배 구간** (pH 상승 가속)")
             
             btn_run = st.button("🚀 Run Simulation (비교 분석)", type="primary", use_container_width=True)
 
-        # [시뮬레이션 실행 및 결과 표시]
         if btn_run:
             st.session_state.makeup_data = edited_mu 
             mu_dict = dict(zip(edited_mu['Item'], edited_mu['Value']))
             
-            # 농축 수질 계산
             pred_ca = mu_dict['Ca-H (ppm)'] * target_coc
             pred_mg = mu_dict['Mg-H (ppm)'] * target_coc
             pred_cl = mu_dict['Cl (ppm)'] * target_coc
@@ -405,11 +405,9 @@ if "Cooling" in program_mode:
                 pred_alk = mu_dict['M-Alk (ppm)'] * target_coc
                 pred_so4 = mu_dict['SO4 (ppm)'] * target_coc
 
-            # 지수 계산을 위한 전처리
             temp_k = sim_temp + 273.15
             tds_val = pred_cond * 0.7
             
-            # LSI Component Calculation
             val_a = (math.log10(max(tds_val, 1)) - 1) / 10
             val_b = -13.12 * math.log10(temp_k) + 34.55
             val_c = math.log10(max(pred_ca, 1)) - 0.4
@@ -417,7 +415,6 @@ if "Cooling" in program_mode:
             
             pHs = (9.3 + val_a + val_b) - (val_c + val_d)
             
-            # 5대 지수 산출
             lsi = target_ph - pHs
             rsi = (2 * pHs) - target_ph
             p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
@@ -530,27 +527,49 @@ if "Cooling" in program_mode:
                         * `< 0.8`: 안전 / `> 1.2`: 스테인리스/탄소강 점부식 위험
                     * **Turbidity (Deposit):** 부유물질 침적 위험
                         * `> 20 NTU`: 슬러지 침적 우려 (분산제 필요)
-                    """)
-
-    
+                    """) 
+ 
     # ======================================================================
     # Tab 3: Chemical Program
     # ======================================================================
     with tab3:
         st.subheader("3. Chemical Program Selection")
-        try:
-            chem_list = PRODUCT_CATALOG['Cooling']['Main_Inhibitor']
-            chem_names = [c['Name'] for c in chem_list]
-            sel_chem = st.selectbox("Select Inhibitor Model", chem_names)
-            target_chem = next((item for item in chem_list if item['Name'] == sel_chem), None)
-            if target_chem:
-                st.info(f"**Selected:** {sel_chem} | **Type:** {target_chem['Type']} | **Dosage:** {target_chem['Dosage']} ppm")
-                c1, c2 = st.columns(2)
-                usage_kg_day = (makeup * target_chem['Dosage']) / 1000.0 * 24
-                c1.metric("일일 사용량", f"{usage_kg_day:.1f} kg/day")
-        except: 
-            st.error("약품 데이터베이스(PRODUCT_CATALOG) 오류")
         
+        col_chem1, col_chem2 = st.columns(2)
+        with col_chem1:
+            st.markdown("#### 🧪 Inhibitor Selection")
+            try:
+                chem_list = PRODUCT_CATALOG['Cooling']['Main_Inhibitor']
+                chem_names = [c['Name'] for c in chem_list]
+                sel_chem = st.selectbox("Select Inhibitor Model", chem_names)
+                target_chem = next((item for item in chem_list if item['Name'] == sel_chem), None)
+                if target_chem:
+                    st.info(f"**Selected:** {sel_chem} | **Type:** {target_chem['Type']} | **Dosage:** {target_chem['Dosage']} ppm")
+                    rec_dose_ppm = target_chem['Dosage']
+            except: 
+                st.error("약품 데이터베이스(PRODUCT_CATALOG) 오류")
+                rec_dose_ppm = 50.0
+        
+        with col_chem2:
+            st.markdown("#### 🕒 Consumption Calculation")
+            sys_vol = st.number_input("보유수량 (System Vol, m3)", value=500.0, step=10.0)
+            circ_rate = st.number_input("순환수량 (Circulation, m3/hr)", value=2000.0, step=100.0)
+            
+            # 물질수지 계산
+            estim_mu = circ_rate * 0.015 
+            estim_blow = estim_mu / target_coc # 배수량 (Blowdown)
+            
+            st.info(f"추정 배수량(Blowdown): 약 {estim_blow:.1f} m3/hr (at {target_coc} Cycles)")
+            if estim_blow > 0: hti = 0.693 * sys_vol / estim_blow
+            else: hti = 999.9
+            
+            # [수정된 약품 계산] 사용량 = 배수량(Blowdown) 기준
+            usage_kg = (estim_blow * 24 * rec_dose_ppm) / 1000.0
+            
+            st.metric("예상 반감기", f"{hti:.1f} hr")
+            st.metric("일일 약품 사용량", f"{usage_kg:.1f} kg/day", help="배수 손실분 보충 기준 (Blowdown Basis)")
+        
+        st.markdown("---")
         st.markdown("### 🦠 Biocide Program")
         b1, b2 = st.columns(2)
         b1.checkbox("Oxidizing (염소계)", value=True)
@@ -762,32 +781,15 @@ elif "Boiler" in program_mode:
             edited_energy = st.data_editor(st.session_state.energy_data, hide_index=True, key="bo_energy_edit")
         with col_e2:
             e_vals = dict(zip(edited_energy['Parameter'], edited_energy['Value']))
-            if st.session_state.boiler_results:
-                p_bar = st.session_state.boiler_results['press']
-                stm_val = st.session_state.boiler_results['steam']
-            else:
-                p_bar = 10.0 
-                stm_val = 10.0
-            
-            try: sat_t, h_steam = Boiler_Expert_Engine.get_steam_enthalpy(p_bar)
-            except: sat_t, h_steam = 180.0, 665.0
-            
-            t_feed = e_vals['Make-up Temp (°C)']
-            fuel_cost = e_vals['Fuel Cost (KRW/m3)']
-            
-            req_kcal = stm_val * 1000 * (h_steam - t_feed)
-            req_fuel = req_kcal / (9500 * 0.9)
-            cost_hourly = req_fuel * fuel_cost
-            
-            with st.container(border=True):
-                st.metric("Hourly Steam Cost", f"{int(cost_hourly):,} KRW/hr")
-                st.caption(f"Based on: {stm_val} ton/hr, {p_bar} bar, Feed {t_feed}°C")
-            st.info(f"💡 현재 조건에서 스팀 1톤 생산 단가는 약 **{int(cost_hourly/stm_val):,}원** 입니다.")
+            stm_val = st.session_state.boiler_results['steam'] if st.session_state.boiler_results else 10.0
+            fuel_cost = e_vals.get('Fuel Cost (KRW/m3)', 900.0)
+            cost_hourly = (stm_val * 1000 * 600 / 8500) * fuel_cost
+            st.metric("Hourly Steam Cost", f"{int(cost_hourly):,} KRW/hr")
 
 # ==============================================================================
 # [Module 3] RO Master Pro
 # ==============================================================================
-elif program_mode == "3. RO Master Pro":
+elif "RO" in program_mode:
         st.title("💧 RO Master Pro (Global Expert Ver.)")
         st.info("Global Chemical사(Nalco/Solenis 등) 수준의 정밀 진단 및 CIP 솔루션 모듈입니다.")
 
@@ -842,7 +844,7 @@ elif program_mode == "3. RO Master Pro":
 
         with tab2:
             st.subheader("2. Advanced Scale Prediction & Chemical Dosing")
-            with st.expander("🧪 상세 수질 데이터 입력 (Water Analysis)", expanded=True):
+            with st.expander("🧪 상세 수질 데이터 입력 (Feed Water Analysis)", expanded=True):
                 wc1, wc2, wc3, wc4 = st.columns(4)
                 ph = wc1.number_input("pH", 7.0, 14.0, 8.0)
                 tds = wc2.number_input("TDS (mg/L)", 0, 50000, 2000)
@@ -859,15 +861,34 @@ elif program_mode == "3. RO Master Pro":
                 f_ion = wc4.number_input("F (Fluoride)", 0.0, 10.0, 0.2)
 
             if st.button("🚀 Run Chemical Projection"):
-                inputs = {'pH': ph, 'Temp': temp_c, 'TDS': tds, 'Ca': ca, 'Mg': mg, 'HCO3': hco3, 'SO4': so4, 'SiO2': sio2, 'Ba': ba, 'Sr': sr, 'F': f_ion, 'Na': 100, 'Cl': 100}
+                # [수정] 농축 계수(CF) 계산 및 농축수 수질 적용
+                try:
+                    # Tab 1의 rec 값 참조 (없으면 기본값 75%)
+                    current_rec = rec if 'rec' in locals() else 75.0
+                    cf = 1.0 / (1.0 - (current_rec / 100.0))
+                except:
+                    cf = 4.0 # 기본 4배 농축 (회수율 75%)
+
+                # 입력값을 농축수 기준으로 변환 (pH는 보수적으로 원수 유지 또는 LSI 식에서 자동 보정됨)
+                inputs = {
+                    'pH': ph, 
+                    'Temp': temp_c, 
+                    'TDS': tds * cf, 
+                    'Ca': ca * cf, 'Mg': mg * cf, 'HCO3': hco3 * cf, 'SO4': so4 * cf, 
+                    'SiO2': sio2 * cf, 'Ba': ba * cf, 'Sr': sr * cf, 'F': f_ion * cf,
+                    'Na': 100 * cf, 'Cl': 100 * cf # 기타 이온도 농축
+                }
+                
                 engine = RO_Chemistry_Engine() 
                 res = engine.calculate_saturation(inputs)
-                st.markdown("### 🔍 Projection Result")
+                
+                st.markdown(f"### 🔍 Projection Result (at {cf:.1f}x Concentration)")
                 if "안정" in res['Status']: st.success(f"Diagnostics: {res['Status']}")
                 else: st.error(f"Diagnostics: {res['Status']}")
                 st.info(f"💊 **Prescription:** {res['Solution']}")
+
                 mc1, mc2, mc3, mc4 = st.columns(4)
-                mc1.metric("LSI (CaCO3)", res['LSI'])
+                mc1.metric("LSI (Conc.)", res['LSI'], help="농축수 기준 LSI")
                 mc2.metric("CaSO4 Sat(%)", f"{res['Sat_CaSO4']}%")
                 mc3.metric("BaSO4 Sat(%)", f"{res['Sat_BaSO4']}%")
                 mc4.metric("SiO2 Sat(%)", f"{res['Sat_SiO2']}%")
