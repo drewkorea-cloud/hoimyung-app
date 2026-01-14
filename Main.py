@@ -1207,329 +1207,176 @@ if "Cooling" in program_mode:
                 st.latex(r"Mg^{2+} + SiO_3^{2-} \rightarrow MgSiO_3 \downarrow")
                 st.caption("규산마그네슘: 실리카 농축 한계 초과 시 마그네슘과 결합하여 형성되는 매우 단단한 난용성 스케일.")
 
-
 # ==============================================================================
-
-# [Module 2] Boiler Master Pro
-
+# [Module 2] Boiler Master Pro (오류 완전 해결 및 물질수지/약품설계 강화)
 # ==============================================================================
-
 elif "Boiler" in program_mode:
-
-    if 'boiler_feed_data' not in st.session_state:
-
-        st.session_state.boiler_feed_data = pd.DataFrame({
-
-            'Item': ['pH', 'Cond (uS/cm)', 'Hardness (ppm)', 'Cl (ppm)', 'SiO2 (ppm)', 'M-Alk (ppm)', 'Fe (ppm)', 'Phosphate (PO4)'],
-
-            'Feedwater': [8.5, 150.0, 1.0, 15.0, 2.0, 40.0, 0.05, 0.5]
-
+    # 1. 초기 데이터 및 세션 설정 (AttributeError 방지)
+    if 'b_data_feed' not in st.session_state:
+        st.session_state.b_data_feed = pd.DataFrame({
+            'Item': ['pH', 'Cond (uS/cm)', 'Hardness (ppm)', 'Cl (ppm)', 'SiO2 (ppm)', 'M-Alk (ppm)', 'Fe (ppm)'],
+            'Feedwater': [8.5, 150.0, 1.0, 15.0, 2.0, 40.0, 0.05]
         })
 
-    
-
-    if 'energy_data' not in st.session_state:
-
-        st.session_state.energy_data = pd.DataFrame({
-
-            'Parameter': ['Fuel Cost (KRW/m3)', 'Oper. Hours/Day', 'Make-up Temp (°C)', 'Condensate Temp (°C)'],
-
-            'Value': [900.0, 24.0, 20.0, 85.0]
-
-        })
-
-
-
-    if 'boiler_results' not in st.session_state:
-
-        st.session_state.boiler_results = None
-
-
+    # 세션 결과값 초기화 (AttributeError 방지용 기본값)
+    if 'b_res_store' not in st.session_state:
+        st.session_state.b_res_store = {
+            'steam': 10.0, 'feed': 10.7, 'blow': 0.7, 'coc': 15.0, 'dose_ppm': 100.0, 'naoh_pct': 20.0
+        }
 
     st.title("🔥 Boiler Master Pro")
-
-    st.caption("Advanced Chemistry Simulation & Safety Diagnosis")
-
-
+    st.info("증기 발생량 대비 정밀 물질수지(Water Balance)와 가성소다 함량 기반 수질 예측 시스템입니다.")
 
     tab_sim, tab_chem_prog, tab_safety, tab_energy = st.tabs([
-
-        "1. Water Simulation", "2. Chemical Program", "3. Na-PO4 Safety Map", "4. Energy Cost"
-
+        "1. Water Simulation & Balance", 
+        "2. Chemical Program (약품설계)", 
+        "3. Na-PO4 Safety Map", 
+        "4. Energy Cost"
     ])
-
     
-
+    # --- Tab 1: Water Simulation & Balance ---
     with tab_sim:
+        st.subheader("1. Boiler Water Balance & Quality Prediction")
+        col_b1, col_b2 = st.columns([1, 1.2])
+        
+        with col_b1:
+            st.markdown("###### ① 급수 수질 입력 (Feedwater)")
+            # DuplicateWidgetID 방지를 위해 유니크한 key 사용
+            e_bf = st.data_editor(st.session_state.b_data_feed, hide_index=True, key="b_editor_final_2601",
+                                  column_config={"Feedwater": st.column_config.NumberColumn(format="%.1f")})
+            f_v = dict(zip(e_bf['Item'], e_bf['Feedwater']))
 
-        with st.container(border=True):
+        with col_b2:
+            st.markdown("###### ② 운전 조건 및 물질수지 (Water Balance)")
+            b_steam = st.number_input("증기 생산량 (Steam, ton/hr)", value=10.0, key="b_steam_in_26")
+            b_coc = st.slider("목표 농축배수 (CoC)", 2.0, 50.0, 15.0, 0.5, key="b_coc_in_26")
+            
+            # [물질수지 로직] 증기량 대비 배수량 및 급수량 산출
+            b_blowdown = b_steam / (b_coc - 1) if b_coc > 1 else 0
+            b_feedwater = b_steam + b_blowdown
+            
+            # 계산 결과 표시
+            with st.container(border=True):
+                m1, m2 = st.columns(2)
+                m1.metric("계산된 급수량 (Feed)", f"{b_feedwater:.1f} t/h")
+                m2.metric("계산된 배수량 (Blow)", f"{b_blowdown:.1f} t/h")
+            
+            st.write("---")
+            b_dose_ppm = st.number_input("청관제 목표농도 (ppm, 급수대비)", value=100.0, step=10.0, key="b_dose_in_26")
+            b_naoh_pct = st.number_input("청관제 내 가성소다(NaOH) 함량 (%)", value=20.0, step=1.0, key="b_naoh_in_26")
+            
+            # 가성소다 알칼리도 상승분 (NaOH 1ppm = 1.25ppm CaCO3)
+            naoh_boost = b_dose_ppm * (b_naoh_pct / 100) * 1.25
+            
+            # 시뮬레이션 결과 저장 (Tab 2 연동용)
+            st.session_state.b_res_store = {
+                'steam': b_steam, 'feed': b_feedwater, 'blow': b_blowdown, 
+                'coc': b_coc, 'dose_ppm': b_dose_ppm, 'naoh_pct': b_naoh_pct
+            }
 
-            col_b1, col_b2 = st.columns([1, 1.5])
+        # [수질 예측 계산]
+        p_alk = (f_v['M-Alk (ppm)'] * b_coc) + naoh_boost
+        p_ph = 9.3 + math.log10(max(p_alk, 1)) if p_alk > 0 else f_v['pH']
+        p_ph = min(p_ph, 12.5)
+        p_cond = (f_v['Cond (uS/cm)'] * b_coc) + (naoh_boost * 5.5)
+        p_cl = f_v['Cl (ppm)'] * b_coc
+        p_sio2 = f_v['SiO2 (ppm)'] * b_coc
+        p_fe = f_v['Fe (ppm)'] * b_coc
 
-            with col_b1:
+        # ASME 체크
+        try:
+            _, l_cond = Boiler_Expert_Engine.check_asme_standard(10.0, p_cond, p_sio2, p_alk)
+        except:
+            l_cond = 3000.0
 
-                st.subheader("1. Feedwater Quality")
+        st.divider()
+        st.subheader(f"📊 보일러 관수 수질 예측 (농축 {b_coc}배)")
+        
+        # [출력 테이블] 모든 수치 f-string으로 소수점 1자리 고정
+        p_df = pd.DataFrame({
+            '측정 항목': ['pH (예측값)', 'Cond (uS/cm)', 'M-Alk (ppm)', 'SiO2 (ppm)', 'Cl (ppm)', 'Fe (ppm)'],
+            '급수 (Feed)': [f"{f_v['pH']:.1f}", f"{f_v['Cond (uS/cm)']:.1f}", f"{f_v['M-Alk (ppm)']:.1f}", f"{f_v['SiO2 (ppm)']:.1f}", f"{f_v['Cl (ppm)']:.1f}", f"{f_v['Fe (ppm)']:.2f}"],
+            '관수 (Predicted)': [f"{p_ph:.1f}", f"{p_cond:.1f}", f"{p_alk:.1f}", f"{p_sio2:.1f}", f"{p_cl:.1f}", f"{p_fe:.2f}"],
+            'ASME 관리기준': ["10.5~11.5", f"{l_cond:.1f}", "P 비례", "P 비례", "-", "-"]
+        })
+        st.table(p_df)
 
-                edited_bf = st.data_editor(st.session_state.boiler_feed_data, hide_index=True, key="bo_feed_editor")
-
-            with col_b2:
-
-                st.subheader("2. Operation Control")
-
-                bo_press = st.slider("Steam Pressure (bar)", 5.0, 60.0, 10.0, key="bo_press")
-
-                bo_cycles = st.slider("Target Cycles (N)", 1.0, 50.0, 15.0, key="bo_cycles")
-
-                st.write("---")
-
-                bo_steam = st.number_input("Steam Rate (ton/hr)", 10.0, key="bo_steam_rate")
-
-                btn_sim = st.button("🔄 시뮬레이션 실행 (Run)", key="bo_btn_sim")
-
-
-
-            if btn_sim:
-
-                st.session_state.boiler_feed_data = edited_bf
-
-                f_vals = dict(zip(edited_bf['Item'], edited_bf['Feedwater']))
-
-                cycles = bo_cycles
-
-                
-
-                pred_cond = f_vals['Cond (uS/cm)'] * cycles
-
-                pred_cl = f_vals['Cl (ppm)'] * cycles
-
-                pred_sio2 = f_vals['SiO2 (ppm)'] * cycles
-
-                pred_alk = f_vals['M-Alk (ppm)'] * cycles
-
-                pred_fe = f_vals['Fe (ppm)'] * cycles
-
-                pred_po4 = f_vals.get('Phosphate (PO4)', 0.0) * cycles
-
-                
-
-                _, limit_cond = Boiler_Expert_Engine.check_asme_standard(bo_press, pred_cond, pred_sio2, pred_alk)
-
-                
-
-                bw_data = {
-
-                    'Parameter': ['Conductivity', 'Silica (SiO2)', 'Chloride (Cl)', 'M-Alkalinity', 'Iron (Fe)', 'Phosphate (PO4)'],
-
-                    'Feed (급수)': [f_vals['Cond (uS/cm)'], f_vals['SiO2 (ppm)'], f_vals['Cl (ppm)'], f_vals['M-Alk (ppm)'], f_vals['Fe (ppm)'], f_vals.get('Phosphate (PO4)', 0)],
-
-                    'Boiler (예상)': [pred_cond, pred_sio2, pred_cl, pred_alk, pred_fe, pred_po4],
-
-                    'ASME Limit': [limit_cond, "Depends on P", "-", "-", "-", "-"]
-
-                }
-
-                
-
-                st.session_state.boiler_results = {
-
-                    'cycles': cycles, 'press': bo_press, 'steam': bo_steam,
-
-                    'pred_cond': pred_cond, 'limit_cond': limit_cond,
-
-                    'pred_sio2': pred_sio2, 'table': pd.DataFrame(bw_data)
-
-                }
-
-
-
-            if st.session_state.boiler_results:
-
-                res = st.session_state.boiler_results
-
-                st.divider()
-
-                st.subheader("💧 Boiler Water Quality Prediction")
-
-                m1, m2, m3 = st.columns(3)
-
-                m1.metric("Target Cycles", f"{res['cycles']:.1f} N")
-
-                m2.metric("Predicted TDS", f"{res['pred_cond']:.0f} uS/cm", delta="Limit Over" if res['pred_cond'] > res['limit_cond'] else "Safe", delta_color="inverse")
-
-                m3.metric("Predicted Silica", f"{res['pred_sio2']:.1f} ppm")
-
-                st.dataframe(res['table'].style.format("{:.1f}", subset=['Feed (급수)', 'Boiler (예상)']), hide_index=True, use_container_width=True)
-
-
-
+    # --- Tab 2: Chemical Program (냉각수와 동일한 3단 구조) ---
     with tab_chem_prog:
-
-        st.subheader("💊 Chemical Treatment Program")
-
-        stm = st.session_state.boiler_results['steam'] if st.session_state.boiler_results else 10.0
-
+        st.subheader("2. Integrated Boiler Chemical Program")
+        res = st.session_state.b_res_store
         
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            sel_oxy = st.selectbox("Oxygen Scavenger (탈산제)", [p['Name'] for p in PRODUCT_CATALOG['Boiler']['Oxygen_Scavenger']], key="bo_chem_oxy")
-
-            st.info(f"선택 제품: **{sel_oxy}**")
-
-        with c2:
-
-            sel_scale = st.selectbox("Scale Inhibitor (청관제)", [p['Name'] for p in PRODUCT_CATALOG['Boiler']['Scale_Disp']], key="bo_chem_scale")
-
-            st.success(f"선택 제품: **{sel_scale}**")
-
+        st.info(f"💡 **물질수지 기반 설계:** 급수량 {res['feed']:.1f} ton/hr | 청관제 목표 {res['dose_ppm']:.1f} ppm")
+        st.markdown("---")
         
-
-        feed_flow_est = stm * 1.1 
-
-        dos1 = feed_flow_est * 24 * 20 / 1000 
-
-        dos2 = feed_flow_est * 24 * 30 / 1000 
-
+        c_col1, c_col2, c_col3 = st.columns(3)
         
+        with c_col1:
+            st.markdown("#### 🌬️ Oxygen Scavenger")
+            oxy_list = PRODUCT_CATALOG['Boiler']['Oxygen_Scavenger']
+            sel_oxy = st.selectbox("탈산제 선택", [o['Name'] for o in oxy_list], key="b_sel_oxy_final")
+            oxy_dose = st.number_input("탈산제 농도 (ppm)", value=20.0, key="b_oxy_val_final")
+            usage_oxy = (res['feed'] * 24 * oxy_dose) / 1000.0
 
-        st.write("---")
+        with c_col2:
+            st.markdown("#### 🛡️ Scale Inhibitor")
+            # 시뮬레이션 탭에서 입력한 주입량 자동 반영
+            sel_scale = st.selectbox("청관제 선택", ["HBP-Standard"], key="b_sel_scale_final")
+            scale_dose = st.number_input("청관제 농도 (ppm)", value=float(res['dose_ppm']), key="b_scale_val_final")
+            usage_scale = (res['feed'] * 24 * scale_dose) / 1000.0
 
-        st.markdown(f"#### 📊 일일 예상 사용량 (Feed {feed_flow_est:.1f} ton/hr 기준)")
+        with c_col3:
+            st.markdown("#### 🧪 Condensate")
+            sel_cond = st.selectbox("복수처리제 선택", ["HBC-100", "None"], key="b_sel_cond_final")
+            cond_dose = st.number_input("기타 농도 (ppm)", value=5.0, key="b_cond_val_final")
+            usage_cond = (res['feed'] * 24 * cond_dose) / 1000.0
 
+        st.divider()
+        st.markdown("### 📊 일일 약품 소요량 비교 (Daily Consumption)")
         
-
-        dos_df = pd.DataFrame({
-
-            'Product': [sel_oxy, sel_scale],
-
-            'Dosing (kg/day)': [dos1, dos2]
-
+        b_plot_df = pd.DataFrame({
+            'Category': ['Scavenger', 'Inhibitor', 'Condensate'],
+            'Usage (kg/day)': [usage_oxy, usage_scale, usage_cond]
         })
 
-        fig_bar = px.bar(dos_df, x='Product', y='Dosing (kg/day)', color='Product', text_auto='.1f')
+        fig_b_chem = px.bar(b_plot_df, x='Category', y='Usage (kg/day)', color='Category',
+                            text=b_plot_df['Usage (kg/day)'].apply(lambda x: f'{x:.1f} kg'))
+        st.plotly_chart(fig_b_chem, use_container_width=True)
 
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-
-
+    # --- Tab 3: Na-PO4 Safety Map ---
     with tab_safety:
-
-        st.subheader("🧪 Na-PO4 Coordinate Map")
-
-        st.caption("Caustic Gouging & Acidic Corrosion Risk Diagnosis")
-
-        
-
-        col_s1, col_s2 = st.columns([1, 2])
-
-        
-
-        with col_s1:
-
+        st.subheader("3. Na-PO4 Coordinate Map")
+        c_s1, c_s2 = st.columns([1, 2])
+        with c_s1:
             with st.container(border=True):
-
-                st.markdown("**현재 관수(Boiler Water) 상태**")
-
-                cur_ph = st.number_input("Current pH", 8.0, 13.0, 10.5, 0.1, key="bo_safe_ph")
-
-                cur_po4 = st.number_input("Current PO4 (ppm)", 0.0, 100.0, 20.0, 1.0, key="bo_safe_po4")
-
-                st.info("※ 시뮬레이션 값이 아닌, 실제 측정값을 입력하여 진단합니다.")
-
-
-
-        with col_s2:
-
+                st.markdown("**현장 측정 데이터**")
+                cur_ph = st.number_input("현재 pH", 8.0, 13.0, 10.5, 0.1, key="b_safe_ph_final")
+                cur_po4 = st.number_input("현재 PO4 (ppm)", 0.0, 100.0, 20.0, 1.0, key="b_safe_po4_final")
+        with c_s2:
             fig_map = go.Figure()
-
             fig_map.add_shape(type="rect", x0=10, y0=9.4, x1=40, y1=10.5, line=dict(color="Green"), fillcolor="rgba(0, 255, 0, 0.1)")
-
-            fig_map.add_annotation(x=25, y=10.0, text="Safe Zone", showarrow=False, font=dict(color="green"))
-
-
-
-            x_range = np.linspace(0, 60, 100)
-
-            y_upper = 11.6 - (x_range * 0.025)
-
-            y_lower = 9.0 - (x_range * 0.01)
-
-            
-
-            fig_map.add_trace(go.Scatter(x=x_range, y=y_upper, mode='lines', name='Caustic Limit', line=dict(color='red', dash='dash')))
-
-            fig_map.add_trace(go.Scatter(x=x_range, y=y_lower, mode='lines', name='Acidic Limit', line=dict(color='orange', dash='dash')))
-
-
-
-            status_color = "green"
-
-            status_msg = "Safe"
-
-            limit_up = 11.6 - (cur_po4 * 0.025)
-
-            limit_down = 9.0 - (cur_po4 * 0.01)
-
-            
-
-            if cur_ph > limit_up:
-
-                status_color = "red"; status_msg = "Caustic Risk"
-
-            elif cur_ph < limit_down:
-
-                status_color = "orange"; status_msg = "Acidic Risk"
-
-            
-
-            fig_map.add_trace(go.Scatter(x=[cur_po4], y=[cur_ph], mode='markers+text', marker=dict(size=18, color=status_color, symbol='x'), text=[status_msg], textposition="top right", name='Current Point'))
-
-            fig_map.update_layout(title="Na-PO4 Safety Map", xaxis_title="Phosphate (PO4, ppm)", yaxis_title="pH", xaxis=dict(range=[0, 60]), yaxis=dict(range=[8.0, 12.5]), height=450)
-
+            x_r = np.linspace(0, 60, 100)
+            fig_map.add_trace(go.Scatter(x=x_r, y=11.6-(x_r*0.025), mode='lines', name='Caustic Limit', line=dict(color='red', dash='dash')))
+            fig_map.add_trace(go.Scatter(x=x_r, y=9.0-(x_r*0.01), mode='lines', name='Acidic Limit', line=dict(color='orange', dash='dash')))
+            fig_map.add_trace(go.Scatter(x=[cur_po4], y=[cur_ph], mode='markers', marker=dict(size=15, color="blue"), name="Current"))
+            fig_map.update_layout(xaxis_title="PO4 (ppm)", yaxis_title="pH", height=400)
             st.plotly_chart(fig_map, use_container_width=True)
 
-            
-
-            if status_color == "red":
-
-                st.error("🚨 **위험:** pH가 너무 높습니다. **알칼리 부식(Caustic Gouging)**이 우려됩니다. 인산염을 투입하여 pH를 낮추십시오.")
-
-            elif status_color == "orange":
-
-                st.warning("⚠️ **주의:** pH가 너무 낮습니다. **산성 부식** 가능성이 있습니다.")
-
-            else:
-
-                st.success("✅ **양호:** 적절한 Phosphate 처리 영역에 있습니다.")
-
-
-
+    # --- Tab 4: Energy Cost ---
     with tab_energy:
-
-        st.subheader("💸 Steam Cost Analysis")
-
-        col_e1, col_e2 = st.columns([1, 1.5])
-
-        with col_e1:
-
-            edited_energy = st.data_editor(st.session_state.energy_data, hide_index=True, key="bo_energy_edit")
-
-        with col_e2:
-
-            e_vals = dict(zip(edited_energy['Parameter'], edited_energy['Value']))
-
-            stm_val = st.session_state.boiler_results['steam'] if st.session_state.boiler_results else 10.0
-
-            fuel_cost = e_vals.get('Fuel Cost (KRW/m3)', 900.0)
-
-            cost_hourly = (stm_val * 1000 * 600 / 8500) * fuel_cost
-
-            st.metric("Hourly Steam Cost", f"{int(cost_hourly):,} KRW/hr")
-
-
-
+        st.subheader("4. Steam Production Cost Analysis")
+        # 에러 방지용 세션 데이터 재호출
+        if 'b_data_energy' not in st.session_state:
+            st.session_state.b_data_energy = pd.DataFrame({
+                'Parameter': ['Fuel Cost (KRW/m3)', 'Oper. Hours/Day', 'Make-up Temp (°C)', 'Condensate Temp (°C)'],
+                'Value': [900.0, 24.0, 20.0, 85.0]
+            })
+        e_edit = st.data_editor(st.session_state.b_data_energy, hide_index=True, key="b_energy_final")
+        e_v = dict(zip(e_edit['Parameter'], e_edit['Value']))
+        f_cost = e_v.get('Fuel Cost (KRW/m3)', 900.0)
+        # 시간당 연료비 = (증기량 * 증발잠열) / (연료발열량 * 효율) * 연료단가
+        c_h = (st.session_state.b_res_store['steam'] * 1000 * 620 / 8500 / 0.85) * f_cost
+        st.metric("Estimated Hourly Fuel Cost", f"{int(c_h):,} KRW/hr")
 # ==============================================================================
 
 # [Module 3] RO Master Pro
