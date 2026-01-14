@@ -470,15 +470,15 @@ if "Cooling" in program_mode:
 
 
     if 'deposit_data' not in st.session_state:
-
         st.session_state.deposit_data = pd.DataFrame({
-
-            'Component': ['LOI (550°C)', 'Calcium (CaO)', 'Magnesium (MgO)', 'Iron (Fe2O3)', 'Aluminium (Al2O3)', 'Silica (SiO2)', 'Phosphate (P2O5)', 'Sulfate (SO4)'], 
-
-            'Result (%)': [28.02, 0.10, 0.05, 0.23, 45.49, 1.53, 0.10, 23.48]
-
+            'item': [
+                'Sulfate(SO4)', 'Aluminium(Al2O3)', 'Calcium(CaO)', 'Copper(CuO)', 
+                'Iron Oxide (Fe2O3)', 'Potasium(K2O)', 'Magnesium(MgO)', 'Manganese(MnO)', 
+                'Sodium(Na2O)', 'Phosphate (P2O5)', 'Silica(SiO2)', 'Acid InSolubles', 
+                'Zinc(ZnO)', 'Nickel(NiO)', 'Vanadium(V2O3)', 'Chromium(Cr2O3)'
+            ],
+            'Result (%)': [23.48, 45.49, 0.10, 0.01, 0.23, 0.01, 0.05, 0.01, 0.02, 0.10, 1.53, 0.86, 0.01, 0.01, 0.00, 0.07]
         })
-
 
 
     st.title("❄️ Cooling Tower Master (Global Expert Ver.)")
@@ -1163,97 +1163,49 @@ if "Cooling" in program_mode:
     # ======================================================================
 
     with tab4:
-
-        st.header("🔬 Lab Analysis & Trouble Shooting")
-
-        st.subheader("1. Deposit Composition Analysis (ICP/Lab Data)")
-
+        st.header("🔬 Deposit Analysis (ICP-OES Data Analysis)")
+        st.caption("※ 성분 수치를 입력하면 자동으로 무기염 총합(Sum)과 각 항목의 비중(%)을 계산합니다.")
         
-
-        with st.container(border=True):
-
-            lc1, lc2, lc3, lc4, lc5 = st.columns(5)
-
-            def_vals = st.session_state.deposit_data['Result (%)'].tolist() if 'deposit_data' in st.session_state else [10.0, 40.0, 5.0, 2.0, 5.0]
-
-            if len(def_vals) < 8: def_vals = [10.0, 40.0, 5.0, 2.0, 5.0]
-
-
-
-            fe = lc1.number_input("Fe (철분, %)", 0.0, 100.0, float(def_vals[3]))
-
-            ca = lc2.number_input("Ca (칼슘, %)", 0.0, 100.0, float(def_vals[1]))
-
-            sio2_dep = lc3.number_input("SiO2 (실리카, %)", 0.0, 100.0, float(def_vals[5]))
-
-            p2o5 = lc4.number_input("P2O5 (인산염, %)", 0.0, 100.0, float(def_vals[6]))
-
-            loi = lc5.number_input("LOI (유기물, %)", 0.0, 100.0, float(def_vals[0]))
-
+        # [입력] 16개 항목 Data Editor
+        edited_deposit = st.data_editor(st.session_state.deposit_data, hide_index=True, use_container_width=True, key="dep_edit_t1")
         
-
-        if st.button("🧪 Identify Deposit Type"):
-
-            c_lab_chart, c_lab_txt = st.columns([1, 1])
-
-            with c_lab_chart:
-
-                fig_lab = go.Figure(go.Bar(
-
-                    x=[fe, ca, sio2_dep, p2o5, loi],
-
-                    y=['Fe', 'Ca', 'SiO2', 'P2O5', 'LOI'],
-
-                    orientation='h', marker=dict(color=['#E74C3C', '#ECF0F1', '#95A5A6', '#F1C40F', '#2ECC71'])
-
-                ))
-
-                fig_lab.update_layout(height=250, margin=dict(l=20, r=20, t=20, b=20))
-
-                st.plotly_chart(fig_lab, use_container_width=True)
-
-            
-
-            with c_lab_txt:
-
-                diagnosis = []
-
-                if fe > 20.0: diagnosis.append("🔴 **[Corrosion]** 부식 생성물(녹)입니다.")
-
-                if ca > 30.0: diagnosis.append("⚪ **[Scale]** 미네랄 스케일입니다.")
-
-                if loi > 25.0: diagnosis.append("🟢 **[Bio-fouling]** 미생물 슬라임입니다.")
-
-                
-
-                if not diagnosis: st.write("복합 오염 또는 토사(Silt)입니다.")
-
-                else: 
-
-                    for d in diagnosis: st.write(d)
-
+        # [계산] 무기염 총합 및 비중(%) 계산 열 추가
+        sum_inorganic = edited_deposit['Result (%)'].sum()
+        edited_deposit['비중 (%)'] = (edited_deposit['Result (%)'] / sum_inorganic * 100).round(2) if sum_inorganic > 0 else 0
         
+        st.markdown(f"#### 📊 분석 결과 요약: **무기염 총합 (InOrganic Salt SUM) = {sum_inorganic:.2f}%**")
+        st.dataframe(edited_deposit, hide_index=True, use_container_width=True)
 
+        # [출력] 가로 막대 그래프 (Horizontal Bar Chart)
         st.divider()
+        st.subheader("📊 성분별 비중 분석 (Deposit Composition)")
+        fig_dep = px.bar(edited_deposit, x='Result (%)', y='item', orientation='h', 
+                         text_auto='.1f', color='item',
+                         title="Deposit Component Analysis (Horizontal Bar)")
+        # 보기 편하도록 비중 순서대로 정렬 및 높이 조절
+        fig_dep.update_layout(showlegend=False, height=550, yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig_dep, use_container_width=True)
 
-        st.subheader("2. Symptom Based Diagnosis")
-
-        col_t1, col_t2 = st.columns(2)
-
-        with col_t1:
-
-            issue = st.selectbox("발생 현상", ["열교환기 효율 저하", "순환수량 감소", "수조 거품 발생", "탁도 급상승"])
-
-        with col_t2:
-
-            check = st.selectbox("점검 사항", ["약품 농도 정상", "스트레이너 막힘", "Blowdown 밸브 닫힘"])
-
+        # [출력] 화학 반응식 박스 (항상 노출)
+        st.divider()
+        st.subheader("💡 주요 성분별 화학적 생성 기전 (Chemical Reaction Mechanism)")
         
+        col_rx1, col_rx2 = st.columns(2)
+        with col_rx1:
+            with st.container(border=True):
+                st.info("**1. 알루미늄($Al_2O_3$) 및 황산염($SO_4$)**")
+                st.latex(r"Al^{3+} + 3OH^- \rightarrow Al(OH)_3 \downarrow")
+                st.caption("수산화알루미늄 침전: 주로 응집제(PAC) Carryover에 의해 발생하며 끈적한 슬러지가 타 성분을 응집시킴.")
+                st.latex(r"2Al^{3+} + 3SO_4^{2-} \rightarrow Al_2(SO_4)_3")
+                st.caption("황산알루미늄 복합염: 산 주입 과다 또는 원수 내 황산염 농도가 높을 때 생성되는 단단한 스케일.")
 
-        if "효율" in issue: st.caption("👉 스케일/디포짓 의심. 위 성분 분석을 수행하십시오.")
-
-        elif "거품" in issue: st.caption("👉 유기물 유입. 소포제 투입.")
-
+        with col_rx2:
+            with st.container(border=True):
+                st.info("**2. 산화철($Fe_2O_3$) 및 실리카($SiO_2$)**")
+                st.latex(r"4Fe + 3O_2 \rightarrow 2Fe_2O_3")
+                st.caption("산화철(녹): 배관 내부 부식의 직접적인 결과물이며 방식 처리가 부족할 때 주로 검출됨.")
+                st.latex(r"Mg^{2+} + SiO_3^{2-} \rightarrow MgSiO_3 \downarrow")
+                st.caption("규산마그네슘: 실리카 농축 한계 초과 시 마그네슘과 결합하여 형성되는 매우 단단한 난용성 스케일.")
 
 
 # ==============================================================================
