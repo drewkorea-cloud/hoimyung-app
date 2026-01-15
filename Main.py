@@ -137,13 +137,13 @@ PRODUCT_CATALOG = {
 
         'Antiscalant': [
 
-            {'Name': 'MDC-220 (General)', 'Desc': '범용 탄산칼슘/황산염 제어', 'Dosage': 3.0, 'Target': ['LSI', 'CaSO4']},
+            {'Name': 'HRD-2200 (General)', 'Desc': '범용 탄산칼슘/황산염 제어', 'Dosage': 3.0, 'Target': ['LSI', 'CaSO4']},
 
-            {'Name': 'MDC-700 (High Silica)', 'Desc': '실리카 200ppm 대응/강력 분산', 'Dosage': 5.0, 'Target': ['SiO2']},
+            {'Name': 'HRD-3000 (High Silica)', 'Desc': '실리카 200ppm 대응/강력 분산', 'Dosage': 5.0, 'Target': ['SiO2']},
 
-            {'Name': 'MDC-150 (Struvite)', 'Desc': '폐수 재이용/인산염/스트루바이트 제어', 'Dosage': 6.0, 'Target': ['Struvite', 'CaPO4']},
+            {'Name': 'HRD-2050 (Struvite)', 'Desc': '폐수 재이용/인산염/스트루바이트 제어', 'Dosage': 6.0, 'Target': ['Struvite', 'CaPO4']},
 
-            {'Name': 'MDC-754 (High Sulfate)', 'Desc': 'BaSO4, SrSO4 특화 (황산바륨 제어)', 'Dosage': 4.0, 'Target': ['BaSO4', 'SrSO4']}
+            {'Name': 'HRD-2240 (High Sulfate)', 'Desc': 'BaSO4, SrSO4 특화 (황산바륨 제어)', 'Dosage': 4.0, 'Target': ['BaSO4', 'SrSO4']}
 
         ]
 
@@ -1246,7 +1246,7 @@ elif "RO" in program_mode:
     max_y_limit = max(u_pot_final) * 1.3 # 그래프 Y축 고정용
 
     # --- [2. UI 구성 (Tabs)] ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 수질 분석", "🔮 성능 열화", "🚨 정밀 진단", "💊 전문가 처방"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 수질 분석", "🔮 성능 열화", "🚨 정밀 진단", "💊 Chemical Program (약품)"])
 
     with tab1:
         st.subheader("Step 1. Water Analysis & Brine Prediction")
@@ -1326,10 +1326,10 @@ elif "RO" in program_mode:
 
     with tab4:
         # [요청 4] 약품 변경 실시간 연동 및 Y축 동기화
-        st.subheader("💊 전문가 처방 & 효과 시뮬레이션")
+        st.subheader("💊 Chemical Program (약품)")
         
         # 1. 자동 추천 로직
-        rec_p = "MDC-700" if u_pot_final[3] > 100 else "MDC-220"
+        rec_p = "HRD-3000" if u_pot_final[3] > 100 else "HRD-2200"
         st.success(f"🎯 **Technical Prescription:** {rec_p}")
 
         # 2. 약품 선택 (selectbox)
