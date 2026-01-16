@@ -1372,25 +1372,45 @@ elif "RO" in program_mode:
     with tab2:
         st.subheader("Step 2. 성능 열화(Degradation) 시뮬레이션")
         
+        # [추가됨] 수원별 성능 저하 가이드라인 (사용자 참고용)
+        with st.expander("💡 수원별 권장 연간 변화율 가이드 (Reference)", expanded=True):
+            st.markdown("""
+            | 수원 종류 (Source) | 연간 유량 감소율 (Flux Decline) | 연간 염투과 증가율 (Salt Passage) |
+            | :--- | :---: | :---: |
+            | **지하수 (Well Water)** | 2 ~ 3 % | 3 ~ 5 % |
+            | **지표수 (Surface Water)** | 5 ~ 7 % | 10 ~ 12 % |
+            | **폐수 재이용 (Wastewater)** | 10 ~ 15 % | 15 ~ 20 % |
+            """)
+            st.caption("※ 위 수치는 일반적인 가이드라인이며, 전처리 수준 및 세정 빈도에 따라 달라질 수 있습니다.")
+
+        st.divider()
+
+        # 시뮬레이션 입력 슬라이더
         c_t2_1, c_t2_2 = st.columns(2)
-        with c_t2_1: a_rate_s = st.slider("연간 유량 감소율 (%)", 0.0, 15.0, 5.0, key="a_s")
-        with c_t2_2: b_rate_s = st.slider("연간 염투과 증가율 (%)", 0.0, 25.0, 10.0, key="b_s")
+        with c_t2_1: a_rate_s = st.slider("연간 유량 감소율 (%)", 0.0, 20.0, 5.0, key="a_s")
+        with c_t2_2: b_rate_s = st.slider("연간 염투과 증가율 (%)", 0.0, 30.0, 10.0, key="b_s")
+        
         op_y = st.slider("📅 멤브레인 사용 년수 (Years)", 0.0, 10.0, 3.0, 0.5, key="y_s")
         
-        # 현재 유량/전도도 (입력값이 없으므로 추정치 사용 혹은 Tab 1값 연동)
-        # Tab 1의 생산유량(in_flow)을 기준으로 계산
-        base_flow = in_flow
-        base_cond = sum(v_main.values()) * 0.6 # TDS -> Cond 대략 환산
+        # 현재 유량/전도도 (Tab 1 입력값 연동)
+        # Tab 1의 생산유량(in_flow)과 농축수 TDS(brine_tds_final) 등을 참고하여 계산
+        # 여기서는 편의상 전역 변수 c_flow_side(사이드바) 또는 기본값 활용
+        base_flow = c_flow_side if 'c_flow_side' in locals() else 50.0
+        base_cond = c_cond_side if 'c_cond_side' in locals() else 15.0 # 생산수 전도도 가정
         
+        # 열화 계산식 (Compound Interest Formula)
         a_f = (1 - (a_rate_s / 100)) ** op_y
         b_f = (1 + (b_rate_s / 100)) ** op_y
-        p_f, p_c = base_flow * a_f, base_cond * b_f
+        
+        p_f_res = base_flow * a_f
+        p_c_res = base_cond * b_f
 
+        # 결과 메트릭 표시
         m_t2_1, m_t2_2 = st.columns(2)
-        m_t2_1.metric("예상 생산 유량", f"{p_f:.1f} m³/h", f"{int((a_f-1)*100)}% 감소")
-        m_t2_2.metric("예상 생산수 전도도", f"{p_c:.1f} μS/cm", f"+{int((b_f-1)*100)}% 상승", delta_color="inverse")
+        m_t2_1.metric("예상 생산 유량 (Permeate Flow)", f"{p_f_res:.1f} m³/h", f"{int((a_f-1)*100)}% 감소")
+        m_t2_2.metric("예상 생산수 전도도 (Quality)", f"{p_c_res:.1f} μS/cm", f"+{int((b_f-1)*100)}% 악화", delta_color="inverse")
 
-        # 그래프
+        # 그래프 시각화
         y_ax = np.linspace(0, 10, 21)
         f_cv = [base_flow * ((1 - (a_rate_s / 100)) ** y) for y in y_ax]
         c_cv = [base_cond * ((1 + (b_rate_s / 100)) ** y) for y in y_ax]
@@ -1398,13 +1418,15 @@ elif "RO" in program_mode:
         g1, g2 = st.columns(2)
         with g1:
             fig_f = go.Figure()
-            fig_f.add_trace(go.Scatter(x=y_ax, y=f_cv, line=dict(color='#3498DB', width=3)))
-            fig_f.update_layout(title="Flow Decline Curve", xaxis_title="Years", yaxis_title="Flow")
+            fig_f.add_trace(go.Scatter(x=y_ax, y=f_cv, line=dict(color='#3498DB', width=3), name='Flow'))
+            fig_f.add_trace(go.Scatter(x=[op_y], y=[p_f_res], mode='markers+text', text=[f"{p_f_res:.1f}"], textposition="top right", marker=dict(color='red', size=12)))
+            fig_f.update_layout(title="Flow Decline Curve (유량 감소)", xaxis_title="Years", yaxis_title="Flow (m3/h)", height=350)
             st.plotly_chart(fig_f, use_container_width=True)
         with g2:
             fig_c = go.Figure()
-            fig_c.add_trace(go.Scatter(x=y_ax, y=c_cv, line=dict(color='#E74C3C', width=3)))
-            fig_c.update_layout(title="Salt Passage Increase", xaxis_title="Years", yaxis_title="Cond")
+            fig_c.add_trace(go.Scatter(x=y_ax, y=c_cv, line=dict(color='#E74C3C', width=3), name='Salt Passage'))
+            fig_c.add_trace(go.Scatter(x=[op_y], y=[p_c_res], mode='markers+text', text=[f"{p_c_res:.1f}"], textposition="top right", marker=dict(color='black', size=12)))
+            fig_c.update_layout(title="Salt Passage Increase (염투과 증가)", xaxis_title="Years", yaxis_title="Conductivity", height=350)
             st.plotly_chart(fig_c, use_container_width=True)
 
     # [Tab 3] 정밀 진단 (수정된 pH 반영)
