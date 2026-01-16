@@ -1832,53 +1832,251 @@ elif "Wastewater" in program_mode:
 # ==============================================================================
 elif "Engineering" in program_mode:
     st.title("📏 Basic Engineering & Sizing Calculator")
-    st.info("설비 규격 및 여재 충진량 산출을 위한 엔지니어링 도구입니다.")
+    st.info("설비 규격 및 여재 충진량 산출 (AFM IFU V23.4 규격 적용)")
 
     tab_afm, tab_ro_sizing = st.tabs(["🧪 AFM/Media Filter Sizing", "💧 RO System Sizing"])
 
     # --- [1. AFM/Media Filter Sizing] ---
     with tab_afm:
         st.subheader("Media Filter & AFM Filling Calculation")
+        
+        # 입력 섹션
         c1, c2 = st.columns(2)
         with c1:
-            tank_d = st.number_input("Tank Diameter (mm)", value=2000, step=100)
-            bed_h = st.number_input("Media Bed Height (mm)", value=1000, step=100)
-            media_type = st.selectbox("Media Type", ["AFM (밀도 1.25)", "Sand (밀도 1.6)", "Anthracite (밀도 0.9)"])
-        
-        # 계산 로직
+            tank_d = st.number_input("Tank Diameter (mm)", value=2000, step=100, key="afm_d")
+            bed_h = st.number_input("Media Bed Height (mm)", value=1200, step=100, help="지지층을 포함한 총 여재 높이", key="afm_h")
+            media_type = st.selectbox("Media Type", ["AFM (Activated Filter Media)", "Sand (Quartz Sand)", "Anthracite"], key="afm_type")
+
+            # [AFM 전용 옵션]
+            is_afm = False
+            use_grade0 = False
+            bottom_type = "Nozzle Plate"
+            
+            if "AFM" in media_type:
+                is_afm = True
+                st.markdown("---")
+                st.markdown("**⚙️ AFM Configuration (IFU V23.4)**")
+                # 필터 하부 타입 선택 (Layering 로직이 달라짐)
+                bottom_type = st.radio("Filter Bottom Type", ["Nozzle Plate (노즐판)", "Lateral System (스트레이너)"], 
+                                       help="노즐판은 Grade 3가 필요 없으나, 스트레이너 방식은 하부 보호를 위해 Grade 3가 필수입니다.")
+                # Grade 0 사용 여부
+                use_grade0 = st.checkbox("Grade 0 (0.25~0.5mm) 포함 (Ultra-filtration)", value=False, 
+                                        help="1 micron 이하 제거 및 SDI 저감이 필요한 경우 선택 (RO 전처리 권장)")
+
+        # [물리적 계산]
         radius = tank_d / 2000 # mm -> m
         height = bed_h / 1000 # mm -> m
         volume = math.pi * (radius ** 2) * height
         
-        density = 1.25 if "AFM" in media_type else (1.6 if "Sand" in media_type else 0.9)
-        weight = volume * density * 1000 # ton -> kg
-
+        # [결과 표시 섹션]
         with c2:
-            st.markdown("#### 🎯 Calculation Result")
-            st.metric("소요 체적 (Volume)", f"{volume:.2f} m³")
-            st.metric(f"{media_type.split(' ')[0]} 소요량", f"{weight:.1f} kg")
-            st.caption(f"※ 탱크 하부 Support Gravel 및 Freeboard(약 40~50%)는 별도 고려하십시오.")
+            st.markdown("#### 🎯 Calculation Summary")
+            st.metric("Total Bed Volume", f"{volume:.2f} m³")
+            
+            if not is_afm:
+                # 일반 여재 계산 (Sand/Anthracite)
+                density = 1.6 if "Sand" in media_type else 0.9
+                total_weight = volume * density * 1000
+                st.metric("Total Media Weight", f"{total_weight:.0f} kg", f"Bulk Density: {density} kg/l")
+            
+            else:
+                # [AFM 상세 계산 로직 - IFU V23.4 Page 8 & 14]
+                # 등급별 밀도 (Page 8 Table)
+                d_g0 = 1.24
+                d_g1 = 1.33
+                d_g2 = 1.40
+                d_g3 = 1.43
+                
+                # 적층 비율(Ratio) 결정 로직
+                ratio = {} # {grade: percentage}
+                
+                if "Lateral" in bottom_type:
+                    # 스트레이너 타입 (Grade 3 필수 - Page 14)
+                    if use_grade0:
+                        # High Precision: G0(20) / G1(30) / G2(30) / G3(20)
+                        ratio = {'G0': 0.20, 'G1': 0.30, 'G2': 0.30, 'G3': 0.20}
+                        st.info("💡 **Laterals + Grade 0:** G0(20%) / G1(30%) / G2(30%) / G3(20%) 비율 적용")
+                    else:
+                        # Standard: G1(60%) / G2(20%) / G3(20%) (Page 14 Diagram >800mm)
+                        ratio = {'G1': 0.60, 'G2': 0.20, 'G3': 0.20}
+                        st.info("💡 **Laterals Standard:** G1(60%) / G2(20%) / G3(20%) 비율 적용")
+                else:
+                    # 노즐판 타입 (Grade 3 불필요 - Page 12)
+                    if use_grade0:
+                        # High Precision: G0(20) / G1(30) / G2(50) (Page 12 범위 중간값)
+                        ratio = {'G0': 0.20, 'G1': 0.30, 'G2': 0.50}
+                        st.info("💡 **Nozzle + Grade 0:** G0(20%) / G1(30%) / G2(50%) 비율 적용")
+                    else:
+                        # Standard: G1(70%) / G2(30%)
+                        ratio = {'G1': 0.70, 'G2': 0.30}
+                        st.info("💡 **Nozzle Standard:** G1(70%) / G2(30%) 비율 적용")
 
-    # --- [2. RO System Sizing] ---
+                # 중량 계산
+                w_g0 = volume * ratio.get('G0', 0) * d_g0 * 1000
+                w_g1 = volume * ratio.get('G1', 0) * d_g1 * 1000
+                w_g2 = volume * ratio.get('G2', 0) * d_g2 * 1000
+                w_g3 = volume * ratio.get('G3', 0) * d_g3 * 1000
+                
+                total_afm_weight = w_g0 + w_g1 + w_g2 + w_g3
+                st.metric("Total AFM Weight", f"{total_afm_weight:.0f} kg")
+
+        # [AFM Layering Display]
+        if is_afm:
+            st.divider()
+            st.markdown("### 🧪 AFM Grade-specific Layering (25kg Bags)")
+            
+            # 컬럼 수 동적 할당
+            cols = st.columns(4 if use_grade0 else 3)
+            
+            # G0 (Optional)
+            if use_grade0:
+                with cols[0]:
+                    bags = math.ceil(w_g0 / 25)
+                    st.success(f"🟣 **Grade 0** (Top)\n\n"
+                               f"**{w_g0:.0f} kg**\n\n"
+                               f"📦 **{bags} Bags**\n\n"
+                               f"Size: 0.25-0.5mm\n"
+                               f"Density: {d_g0}")
+            
+            # G1
+            idx_g1 = 1 if use_grade0 else 0
+            with cols[idx_g1]:
+                bags = math.ceil(w_g1 / 25)
+                st.error(f"🔴 **Grade 1**\n\n"
+                           f"**{w_g1:.0f} kg**\n\n"
+                           f"📦 **{bags} Bags**\n\n"
+                           f"Size: 0.4-0.8mm\n"
+                           f"Density: {d_g1}")
+
+            # G2
+            idx_g2 = 2 if use_grade0 else 1
+            with cols[idx_g2]:
+                bags = math.ceil(w_g2 / 25)
+                st.info(f"🔵 **Grade 2**\n\n"
+                          f"**{w_g2:.0f} kg**\n\n"
+                          f"📦 **{bags} Bags**\n\n"
+                          f"Size: 0.7-2.0mm\n"
+                          f"Density: {d_g2}")
+
+            # G3 (Lateral Only)
+            if "Lateral" in bottom_type:
+                idx_g3 = 3 if use_grade0 else 2
+                with cols[idx_g3]:
+                    bags = math.ceil(w_g3 / 25)
+                    st.warning(f"⚫ **Grade 3** (Base)\n\n"
+                               f"**{w_g3:.0f} kg**\n\n"
+                               f"📦 **{bags} Bags**\n\n"
+                               f"Size: 2.0-4.0mm\n"
+                               f"Density: {d_g3}")
+            elif not use_grade0:
+                 # 노즐 타입이고 Standard일 때 3번째 컬럼 비우기 방지용 (빈 공간)
+                 pass
+# --- [2. RO System Sizing] (Updated with 2-Stage vs 3-Stage Logic) ---
     with tab_ro_sizing:
-        st.subheader("RO Membrane & Vessel Configuration")
+        st.subheader("💧 RO System Configuration & Design")
+        st.info("💡 회수율에 따른 **최적 배열(Array)**과 **3단 배열(3:2:1) 적용 가능성**을 분석합니다.")
+
         r1, r2 = st.columns(2)
         with r1:
-            target_p = st.number_input("Target Permeate (m3/hr)", value=50.0)
-            target_rec = st.slider("Target Recovery (%)", 50, 90, 75)
-            design_flux = st.number_input("Design Flux (LMH)", value=18.0, help="폐수재이용: 12~18, 공업용수: 18~25")
-            elements_per_vessel = st.selectbox("Elements per Vessel", [4, 5, 6, 7], index=2)
+            st.markdown("**⚙️ 설계 목표 (Design Basis)**")
+            target_p = st.number_input("목표 생산수 유량 (Permeate Flow, m3/hr)", value=50.0, step=1.0, key="ro_target_p")
+            target_rec = st.slider("목표 회수율 (Recovery, %)", 40, 95, 75, key="ro_target_rec")
+            
+            st.markdown("**🧪 설계 인자 (Design Parameter)**")
+            design_flux = st.number_input("설계 플럭스 (Flux, LMH)", value=15.0, 
+                                        help="표준: 15~18 LMH. 높을수록 오염 위험 증가.", key="ro_flux")
+            
+            # [플럭스 가이드]
+            with st.expander("ℹ️ [참조] 적정 플럭스 가이드라인", expanded=False):
+                st.markdown("""
+                * **폐수 재이용:** `10 ~ 14 LMH`
+                * **하천수/지표수:** `14 ~ 18 LMH`
+                * **지하수:** `18 ~ 22 LMH`
+                """)
 
-        # RO 계산 엔진
+            elements_per_vessel = st.selectbox("베셀당 엘리먼트 수", [4, 5, 6, 7], index=2, key="ro_ele_per_ves")
+            active_area = st.number_input("엘리먼트 유효 면적 (ft²)", value=400, step=10, key="ro_area")
+
+        # --- [엔지니어링 계산 엔진] ---
         feed_flow = target_p / (target_rec / 100)
-        total_area_needed = (target_p * 1000) / design_flux
-        # 8인치 막 표준 면적 400 ft2 = 약 37.2 m2 가정
-        total_elements = math.ceil(total_area_needed / 37.2)
+        concentrate_flow = feed_flow - target_p
+        
+        # 1. 필요 막 수량 및 베셀 수량 계산
+        total_area_m2 = (target_p * 1000) / design_flux
+        element_area_m2 = active_area * 0.0929
+        total_elements = math.ceil(total_area_m2 / element_area_m2)
         total_vessels = math.ceil(total_elements / elements_per_vessel)
+        
+        # 실제 플럭스
+        actual_flux = (target_p * 1000) / (total_elements * element_area_m2)
+
+        # 2. [NEW] 배열 시뮬레이션 (2단 vs 3단)
+        
+        # (Option A) 2단 배열 (Standard 2:1)
+        # 비율: 약 2:1 (67% : 33%)
+        v2_st1 = math.ceil(total_vessels * 0.67)
+        v2_st2 = total_vessels - v2_st1
+        str_2st = f"{v2_st1} : {v2_st2}"
+        
+        # (Option B) 3단 배열 (High Recovery 3:2:1 or 4:2:1)
+        # 비율: 약 4:2:1 또는 3:2:1 (50% : 33% : 17% 근사치)
+        if total_vessels >= 6:
+            v3_st1 = math.ceil(total_vessels * 0.5)
+            v3_st2 = math.ceil(total_vessels * 0.3)
+            v3_st3 = total_vessels - v3_st1 - v3_st2
+            # 3단 잔여량 보정
+            if v3_st3 < 1: 
+                v3_st2 -= 1
+                v3_st3 += 1
+            str_3st = f"{v3_st1} : {v3_st2} : {v3_st3}"
+        else:
+            str_3st = "N/A (베셀 부족)"
 
         with r2:
-            st.markdown("#### 🎯 Engineering Summary")
-            st.metric("Total Elements (8\")", f"{total_elements} EA", delta=f"Area: {total_area_needed:.1f} m²")
-            st.metric("Total Pressure Vessels", f"{total_vessels} PV", delta=f"{elements_per_vessel} Elements/PV")
-            st.write(f"- **Feed Flow:** {feed_flow:.1f} m³/hr")
-            st.write(f"- **Brine Flow:** {feed_flow - target_p:.1f} m³/hr")
+            st.markdown("#### 🎯 Engineering Result")
+            with st.container(border=True):
+                st.metric("총 엘리먼트 / 베셀", f"{total_elements} EA / {total_vessels} PV")
+                st.metric("실제 운전 플럭스", f"{actual_flux:.1f} LMH")
+
+            st.divider()
+            
+            # [핵심] 배열 추천 및 비교 분석
+            st.markdown("##### 🏗️ 배열 구성 비교 (Array Configuration)")
+            
+            # 추천 로직
+            rec_tab1, rec_tab2 = st.tabs(["⭐ 추천: 2단 배열", "⚠️ 대안: 3단 배열"])
+            
+            with rec_tab1:
+                st.metric("Standard Array (2:1)", str_2st)
+                if target_rec <= 80:
+                    st.success("✅ **[적합]** 회수율 80% 이하에서는 **2단 배열**이 수력학적 밸런스와 비용 면에서 가장 유리합니다.")
+                else:
+                    st.warning("⚠️ **[주의]** 회수율이 너무 높습니다. 2단으로는 농축수 유량이 부족할 수 있습니다.")
+            
+            with rec_tab2:
+                st.metric("3-Stage Array (3:2:1)", str_3st)
+                if target_rec >= 85:
+                    st.success("✅ **[적합]** 회수율 85% 이상 고회수율 운전 시 필요한 구성입니다.")
+                else:
+                    st.error("⛔ **[비추천]** 일반 회수율(75%)에서 3단을 쓰면 **후단부 유속 저하 및 차압 상승** 문제가 발생합니다.")
+
+            # [Explain] 3:2:1이 안되는 이유 (전문가 설명)
+            with st.expander("❓ 왜 75% 회수율에서 '3:2:1(3단)'을 안 쓸까요?", expanded=True):
+                st.markdown("""
+                **1. 차압(Delta P)의 과도한 상승**
+                * RO 막을 한 번 통과할 때마다 약 1~2 bar의 압력 손실이 발생합니다.
+                * 3단 구성을 하면 전체 차압이 커져 **앞단(1단)에 과도한 압력**을 걸어야 하고, 이는 **에너지 낭비**로 이어집니다.
+
+                **2. 플럭스 불균형 (Flux Imbalance)**
+                * 3단까지 가면 1단과 3단의 생산량 격차가 너무 커집니다.
+                * 1단은 너무 일을 많이 해서 **파울링(오염)**되고, 3단은 배압(Backpressure) 때문에 **일을 안 하는 현상**이 발생합니다.
+
+                **3. 배관 및 설비 복잡성 (CAPEX)**
+                * 헤더 배관, 계측기(Flow/Pressure Tx)가 1세트 더 필요하여 **설치비가 15~20% 증가**합니다.
+                
+                👉 **결론:** 회수율 85% 이상을 억지로 짜내야 하는 경우가 아니라면, **'2단 배열'**이 정답입니다.
+                """)
+            
+            col_flow1, col_flow2 = st.columns(2)
+            with col_flow1: st.metric("유입수 유량", f"{feed_flow:.1f} m³/hr")
+            with col_flow2: st.metric("농축수 유량", f"{concentrate_flow:.1f} m³/hr")   
