@@ -22,46 +22,97 @@ import numpy as np
 st.set_page_config(layout="wide", page_title="Water Solution Master (by Parker)")
 
 
-
-# [스타일] CSS 스타일 정의
-
+# [스타일] CSS 스타일 정의 (표 겹침 오류 해결 Ver)
 st.markdown("""
-
     <style>
+    /* 1. 전체 기본 폰트 및 본문 텍스트 확대 */
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', sans-serif;
+        font-size: 20px !important;
+    }
+    .stMarkdown p, .stMarkdown li {
+        font-size: 20px !important;
+        line-height: 1.6 !important;
+        color: #2D3748 !important;
+    }
 
+    /* 2. 탭 (Tab) 버튼 스타일 (크고 잘 보이게) */
+    button[data-baseweb="tab"] {
+        font-size: 24px !important;
+        font-weight: 800 !important;
+        color: #718096 !important;
+        background-color: #F7FAFC !important;
+        border-radius: 8px 8px 0 0;
+        padding: 12px 24px !important; 
+        margin-right: 8px !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #FFFFFF !important;
+        background-color: #2E86C1 !important;
+        border: none !important;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+    }
+
+    /* 3. 사이드바 (Sidebar) 메뉴 글씨 확대 */
+    [data-testid="stSidebar"] .stRadio label {
+        font-size: 22px !important;
+        font-weight: 700 !important;
+        padding: 12px 5px !important;
+    }
+    [data-testid="stSidebar"] h1 {
+        font-size: 30px !important;
+        font-weight: 900 !important;
+    }
+
+    /* 4. 입력창 라벨 (Input Label) */
+    .stNumberInput label, .stTextInput label, .stSelectbox label, .stSlider label {
+        font-size: 22px !important;
+        font-weight: 800 !important;
+        color: #1A202C !important;
+        margin-bottom: 10px !important;
+    }
+    
+    /* 5. 입력창 내부 글씨 (Input Value) */
+    .stNumberInput input, .stSelectbox div[data-baseweb="select"] div {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        min-height: 45px !important;
+    }
+
+    /* 6. 결과값 (Metric) */
+    [data-testid="stMetricLabel"] {
+        font-size: 20px !important;
+        font-weight: 600;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 38px !important;
+        font-weight: 900 !important;
+        color: #2563EB !important;
+    }
+    
+    /* 7. 제목 및 헤더 */
+    h1, h2, h3 {
+        font-weight: 800 !important;
+        color: #2C3E50 !important;
+    }
+    h3 { font-size: 26px !important; }
+
+    /* 8. [수정] 데이터 테이블 (Data Editor) */
+    /* zoom 속성을 제거하여 겹침 현상 방지 */
+    [data-testid="stDataFrame"] {
+        font-size: 18px !important; /* 내부 폰트만 살짝 키움 */
+    }
+
+    /* 9. 박스 디자인 */
     .metric-card {
-
-        background-color: #F8F9F9;
-
-        border: 1px solid #E5E8E8;
-
-        padding: 15px;
-
-        border-radius: 8px;
-
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
-
+        background-color: #FFFFFF;
+        border: 2px solid #E2E8F0;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 4px 4px 12px rgba(0,0,0,0.1);
     }
-
-    .report-box {
-
-        background-color: #f0f2f6;
-
-        border-left: 5px solid #ff4b4b;
-
-        padding: 15px;
-
-        margin-top: 10px;
-
-        border-radius: 5px;
-
-    }
-
     </style>
-
     """, unsafe_allow_html=True)
-
-
 
 # ==============================================================================
 
@@ -214,49 +265,35 @@ class Boiler_Expert_Engine:
 
         else: return ", ".join(msgs), limit_tds
 
-
-
 # --- 2. 사이드바 메뉴 ---
-
 with st.sidebar:
-
-    st.title("💧 HOIMYUNG WATERZEN")
-
-    st.subheader("Water Master Pro")
-
+    # [수정] 로고와 텍스트 타이틀 중 하나만 표시하는 로직
+    if os.path.exists("logo.png"):
+        # 1. 로고 파일이 있으면 로고를 보여준다. (타이틀 텍스트는 숨김)
+        st.image("logo.png", use_container_width=True)
+        # 로고 아래에 프로그램 이름만 깔끔하게 표시
+        st.markdown("### **Water Master Pro**") 
+    else:
+        # 2. 로고 파일이 없으면 기존처럼 텍스트 타이틀을 보여준다.
+        st.title("💧 HOIMYUNG WATERZEN")
+        st.subheader("Water Master Pro")
     
-
+    # (아래부터는 기존 메뉴 코드 유지)
     program_mode = st.radio(
-
         "Select Module:", 
-
         [
-
             "1. Cooling Expert", 
-
             "2. Boiler Master", 
-
             "3. RO Master Pro", 
-
             "4. Wastewater Reuse", 
-
             "5. Basic Engineering"
-
         ], 
-
         key="main_menu_mode"
-
     )
-
     
-
     st.markdown("---")
-
     st.info("💡 **Tip:** 값을 입력하고 '적용' 버튼을 누르면 AI 진단이 시작됩니다.")
-
     st.caption("Authorized by **PARKER**")
-
-
 
 # ==============================================================================
 
@@ -877,102 +914,120 @@ if "Cooling" in program_mode:
                     """) 
 
  
-
-   # ======================================================================
-    # Tab 3: Chemical Program (살균제/분산제 시각화 강화 버전)
+# ======================================================================
+    # Tab 3: Chemical Program (지능형 선정 및 소요량 계산 - 오류 수정본)
     # ======================================================================
     with tab3:
-        st.subheader("3. Integrated Chemical Program Selection")
+        st.subheader("💡 Intelligent Chemical Selection System")
         
-  # [핵심 수정] Tab 1에서 계산된 배수량 가져오기
+        # [오류 해결 1] 변수 안전 확보 (Tab 1, 2 데이터 연동)
         calc_blowdown = st.session_state.get('final_blowdown', 0.0)
-        calc_hti = st.session_state.get('final_hti', 0.0)
-
-        col_bal1, col_bal2 = st.columns(2)
+        mu_df = st.session_state.makeup_data
+        mu_dict = dict(zip(mu_df['Item'], mu_df['Value']))
+        
+        ca_h = mu_dict.get('Ca-H (ppm)', 40.0)
+        # Tab 2 시뮬레이션 미실행 시를 대비한 기본값 처리
+        curr_ph = st.session_state.get('sim_target_ph', mu_dict.get('pH', 7.5))
+        curr_lsi = st.session_state.get('sim_lsi', 1.0)
+        
+        # [오류 해결 2] 계산용 배수량 변수(estim_blow) 선행 정의
+        col_bal1, col_bal2 = st.columns([1, 2])
         with col_bal1:
-            # 연동된 값을 보여주되, 사용자가 직접 수정도 가능하게 구성
-            estim_blow = st.number_input("설계 배수량 (Blowdown, m3/hr)", 
+            estim_blow = st.number_input("운전 배수량 (Blowdown, m3/hr)", 
                                          value=float(calc_blowdown), 
-                                         help="Tab 1 물질수지에서 계산된 값이 자동으로 반영됩니다.")
+                                         key="estim_blow_tab3_v26")
         with col_bal2:
-            st.info(f"💡 **현재 물질수지 상태:** 계산 배수량 {calc_blowdown:.1f} m³/hr | 반감기 {calc_hti:.1f} hr")
-
-        st.markdown("---")
-        
-        col_c1, col_c2, col_c3 = st.columns(3)
-        
-        # 1. 부식/스케일 억제제 (Inhibitor)
-        with col_c1:
-            st.markdown("#### 🛡️ Inhibitor")
-            chem_list = PRODUCT_CATALOG['Cooling']['Main_Inhibitor']
-            sel_inh = st.selectbox("억제제 선택", [c['Name'] for c in chem_list], key="sel_inh")
-            inh_data = next((item for item in chem_list if item['Name'] == sel_inh), None)
-            inh_dose = st.number_input("주입농도 (ppm)", value=float(inh_data['Dosage']), key="inh_dose_val")
-            usage_inh = (estim_blow * 24 * inh_dose) / 1000.0
-
-        # 2. 분산제 (Dispersant)
-        with col_c2:
-            st.markdown("#### 🧪 Dispersant")
-            disp_list = PRODUCT_CATALOG['Cooling']['Dispersant']
-            sel_disp = st.selectbox("분산제 선택", [d['Name'] for d in disp_list], key="sel_disp")
-            disp_data = next((item for item in disp_list if item['Name'] == sel_disp), None)
-            disp_dose = st.number_input("주입농도 (ppm)", value=float(disp_data['Dosage']), key="disp_dose_val")
-            usage_disp = (estim_blow * 24 * disp_dose) / 1000.0
-
-        # 3. 살균제 (Biocide)
-        with col_c3:
-            st.markdown("#### 🦠 Biocide")
-            bio_list = PRODUCT_CATALOG['Cooling']['Biocide']
-            sel_bio = st.selectbox("살균제 선택", [b['Name'] for b in bio_list], key="sel_bio")
-            bio_data = next((item for item in bio_list if item['Name'] == sel_bio), None)
-            bio_dose = st.number_input("주입농도 (ppm)", value=float(bio_data['Dosage']), key="bio_dose_val")
-            # 살균제는 보통 충격 주입(Slug)을 하지만, 비교를 위해 일일 평균 소요량으로 계산
-            usage_bio = (estim_blow * 24 * bio_dose) / 1000.0
+            st.info(f"💡 **참고:** Tab 1의 계산 배수량({calc_blowdown:.1f} m³/hr)이 연동되었습니다.")
 
         st.divider()
 
-        # 시각화 차트 영역
-        st.markdown("### 📊 일일 약품 소요량 비교 (Daily Consumption)")
-        
-        chart_data = pd.DataFrame({
-            'Category': ['Inhibitor', 'Dispersant', 'Biocide'],
-            'Product': [sel_inh, sel_disp, sel_bio],
-            'Usage (kg/day)': [usage_inh, usage_disp, usage_bio]
-        })
+        # 1. Dual-Filter 선정 알고리즘 (LSI + SK Matrix)
+        final_prod = ""
+        reason = ""
 
-        # Plotly 막대 그래프 생성
-        fig_chem = px.bar(
-            chart_data, 
-            x='Category', 
-            y='Usage (kg/day)',
-            color='Category',
-            text=chart_data['Usage (kg/day)'].apply(lambda x: f'{x:.1f} kg'),
-            color_discrete_map={'Inhibitor': '#3498DB', 'Dispersant': '#F1C40F', 'Biocide': '#E74C3C'},
-            title="Estimated Daily Chemical Usage"
-        )
-        
-        fig_chem.update_layout(
-            showlegend=False,
-            height=400,
-            yaxis_title="Quantity (kg/day)",
-            xaxis_title=""
-        )
-        
-        st.plotly_chart(fig_chem, use_container_width=True)
+        if curr_lsi > 2.0:
+            if curr_ph > 8.5: # SK 알칼리 로직
+                final_prod = "DREW 11-635"
+                reason = "고농축/고알칼리 수질에서 성분 석출이 없는 All-Organic 처방이 필수적입니다."
+            else:
+                final_prod = "DREW 2305 (High)"
+                reason = "고부하 현장용으로, Millennium 시리즈 중 가장 강력한 스케일 분산력을 제공합니다."
+        elif 0.5 <= curr_lsi <= 2.0:
+            if ca_h < 50: # SK 저경도 로직
+                final_prod = "PERFORMAX 2525"
+                reason = "보충수 Ca-H가 낮아 부식 위험이 높으므로 저경도 전용 방식제를 권장합니다."
+            elif curr_ph > 7.8:
+                final_prod = "DREWGARD 308"
+                reason = "알칼리성 수질(pH 7.5~9.2)에서 안정적인 방스케일 성능을 발휘합니다."
+            else:
+                final_prod = "PERFORMAX 2021A"
+                reason = "중성 영역의 표준 수질로, 가장 경제적이고 안정적인 인산염계 처방입니다."
+        else:
+            final_prod = "PERFORMAX 2525"
+            reason = "LSI가 낮아 부식 성향이 매우 강한 수질입니다. 강력한 금속 보호막 형성이 필요합니다."
 
-        # 상세 요약 메트릭
+        # 2. 결과 대시보드 출력
+        with st.container(border=True):
+            st.markdown(f"### 🎯 최적 처방 제품: **{final_prod}**")
+            item_info = next((item for item in PRODUCT_CATALOG['Cooling']['Main_Inhibitor'] if item['Name'] == final_prod), None)
+            
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.info(f"**LSI:** {curr_lsi:.2f}\n**Ca-H:** {ca_h:.1f} ppm\n**pH:** {curr_ph:.1f}")
+            with c2:
+                if item_info:
+                    st.write(f"**제품 타입:** {item_info['Type']}")
+                    st.write(f"**주요 특징:** {item_info['Feature']}")
+                st.warning(f"**선정 근거:** {reason}")
+
+        st.divider()
+        
+        # 3. 약품 소요량 계산 (Inhibitor / Dispersant / Biocide)
+        col_c1, col_c2, col_c3 = st.columns(3)
+        
+        with col_c1:
+            st.markdown("#### 🛡️ Inhibitor")
+            chem_list = PRODUCT_CATALOG['Cooling']['Main_Inhibitor']
+            # 추천 제품을 기본값으로 설정
+            default_idx = [i for i, c in enumerate(chem_list) if c['Name'] == final_prod]
+            sel_inh = st.selectbox("억제제 선택", [c['Name'] for c in chem_list], 
+                                   index=default_idx[0] if default_idx else 0, key="sel_inh_v26")
+            inh_data = next((item for item in chem_list if item['Name'] == sel_inh), None)
+            inh_dose = st.number_input("주입농도 (ppm)", value=float(inh_data['Dosage']), key="inh_dose_v26")
+            usage_inh = (estim_blow * 24 * inh_dose) / 1000.0
+
+        with col_c2:
+            st.markdown("#### 🧪 Dispersant")
+            disp_list = PRODUCT_CATALOG['Cooling']['Dispersant']
+            sel_disp = st.selectbox("분산제 선택", [d['Name'] for d in disp_list], key="sel_disp_v26")
+            disp_data = next((item for item in disp_list if item['Name'] == sel_disp), None)
+            disp_dose = st.number_input("분산제 농도 (ppm)", value=float(disp_data['Dosage']), key="disp_dose_v26")
+            usage_disp = (estim_blow * 24 * disp_dose) / 1000.0
+
+        with col_c3:
+            st.markdown("#### 🦠 Biocide")
+            bio_list = PRODUCT_CATALOG['Cooling']['Biocide']
+            sel_bio = st.selectbox("살균제 선택", [b['Name'] for b in bio_list], key="sel_bio_v26")
+            bio_data = next((item for item in bio_list if item['Name'] == sel_bio), None)
+            bio_dose = st.number_input("살균제 농도 (ppm)", value=float(bio_data['Dosage']), key="bio_dose_v26")
+            usage_bio = (estim_blow * 24 * bio_dose) / 1000.0
+
+        # 4. 시각화 대시보드
+        st.divider()
+        st.markdown("### 📊 일일 약품 소요량 요약")
         m1, m2, m3 = st.columns(3)
         m1.metric(f"Total {sel_inh}", f"{usage_inh:.1f} kg/day")
         m2.metric(f"Total {sel_disp}", f"{usage_disp:.1f} kg/day")
         m3.metric(f"Total {sel_bio}", f"{usage_bio:.1f} kg/day")
 
-        with st.expander("ℹ️ 계산 근거 및 참고사항"):
-            st.caption("""
-            * **계산 공식:** (배수량(m³/hr) × 24시간 × 목표농도(ppm)) / 1000 = 일일 사용량(kg)
-            * 살균제의 경우 현장 상황에 따라 일 1회 또는 주 2~3회 충격 주입(Slug Dose)으로 운전될 수 있으므로, 위 수치는 연속 주입 시의 평균 소요량입니다.
-            """)
- 
-
+        chart_data = pd.DataFrame({
+            'Category': ['Inhibitor', 'Dispersant', 'Biocide'],
+            'Usage (kg/day)': [usage_inh, usage_disp, usage_bio]
+        })
+        fig_chem = px.bar(chart_data, x='Category', y='Usage (kg/day)', color='Category',
+                          text=chart_data['Usage (kg/day)'].apply(lambda x: f'{x:.1f} kg'))
+        fig_chem.update_layout(showlegend=False, height=350)
+        st.plotly_chart(fig_chem, use_container_width=True)
     # ======================================================================
 
     # Tab 4: Lab Analysis & Trouble Shooting
@@ -1194,178 +1249,210 @@ elif "Boiler" in program_mode:
         # 시간당 연료비 = (증기량 * 증발잠열) / (연료발열량 * 효율) * 연료단가
         c_h = (st.session_state.b_res_store['steam'] * 1000 * 620 / 8500 / 0.85) * f_cost
         st.metric("Estimated Hourly Fuel Cost", f"{int(c_h):,} KRW/hr")
+
 # ==============================================================================
-# [Module 3] RO Master Pro (에러 원천 차단 + 시각화 고도화 + 소수점 정렬)
+# [Module 3] RO Master Pro (pH 입력창 추가 + 이온밸런스 버그 수정)
 # ==============================================================================
 elif "RO" in program_mode:
-    # 0. 세션 상태 초기화 (Tab 1, 2 보존용)
+    # 0. 세션 상태 초기화 (버그 수정: 키값 통일 ro_adj_log -> ro_adj_msg)
     if 'ro_v26_data' not in st.session_state:
         st.session_state.ro_v26_data = pd.DataFrame({
             '항목': ['Na', 'Ca', 'Mg', 'NH4', 'Cl', 'SO4', 'HCO3', 'F', 'SiO2', 'PO4'],
             '농도 (mg/L)': [150.0, 60.0, 20.0, 1.0, 200.0, 100.0, 150.0, 0.1, 20.0, 0.1]
         })
-    if 'ro_adj_log' not in st.session_state:
-        st.session_state.ro_adj_msg = "이온 보정 내역이 없습니다."
+    
+    # [수정 1] 이온 보정 메시지 변수명 통일 (초기화 오류 해결)
+    if 'ro_adj_msg' not in st.session_state:
+        st.session_state.ro_adj_msg = "💡 이온 밸런스 오차가 크면 버튼을 눌러주세요."
 
     st.title("🌊 RO Master Pro: Expert Solution")
     
-    # --- [1. 전역 계산 엔진: 모든 에러의 원인을 여기서 차단] ---
-    # 탭 내부가 아닌 여기서 모든 수치를 미리 계산하여 메모리에 올립니다.
+    # --- [1. 데이터 핸들링 및 전역 변수 설정] ---
+    # 데이터 에디터 연동
     ro_df_main = st.session_state.ro_v26_data
-    # 수치 변환 (소수점 처리를 위해 float 강제 적용)
     v_main = dict(zip(ro_df_main['항목'], pd.to_numeric(ro_df_main['농도 (mg/L)'], errors='coerce').fillna(0)))
     
-    # 이온 밸런스 (meq/L)
+    # 이온 밸런스 계산 (meq/L)
     meq_cat = (v_main['Na']/23.0) + (v_main['Ca']/20.0) + (v_main['Mg']/12.2) + (v_main['NH4']/18.0)
     meq_ani = (v_main['Cl']/35.5) + (v_main['SO4']/48.0) + (v_main['HCO3']/61.0)
-    b_err_final = ((meq_cat - meq_ani) / (meq_cat + meq_ani)) * 100 if (meq_cat + meq_ani) > 0 else 0
+    
+    # 분모가 0일 경우 방어 로직
+    if (meq_cat + meq_ani) > 0:
+        b_err_final = ((meq_cat - meq_ani) / (meq_cat + meq_ani)) * 100
+    else:
+        b_err_final = 0.0
 
-    # 사이드바 설정
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("⚙️ Global Design Parameter")
-        c_flow_side = st.number_input("현재 실제 유량 (m3/h)", value=80.0, step=1.0, key="side_f")
-        c_cond_side = st.number_input("현재 실제 전도도 (μS/cm)", value=15.0, step=1.0, key="side_c")
-        g_rec_side = st.slider("설계 회수율 (%)", 40.0, 90.0, 75.0, key="side_r")
-        g_ph_side = st.slider("운전 pH", 4.0, 11.0, 7.5, key="side_p")
+    # --- [2. UI 구성] ---
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 수질 분석", "🔮 성능 열화", "🚨 정밀 진단", "💊 Chemical Program"])
 
-    # 농축 및 지수 계산
-    cf_final = 1 / (1 - (g_rec_side / 100))
-    brine_tds_final = sum(v_main.values()) * cf_final
-    idx_label_final = "S&DSI" if brine_tds_final > 10000 else "LSI"
-
-    # 스케일 잠재력 (Step 3, 4 공용 변수)
-    sc_items_list = ['CaCO3', 'CaSO4', 'BaSO4', 'SiO2', 'PO4']
-    u_pot_final = [
-        (g_ph_side - 8.2) * 50 + 115, 
-        (v_main['Ca'] * v_main['SO4'] * (cf_final**2)) / 24, 
-        112.5, 
-        (v_main['SiO2'] * cf_final) / 1.2, 
-        (v_main['Ca'] * v_main['PO4'] * (cf_final**2)) / 0.5
-    ]
-    max_y_limit = max(u_pot_final) * 1.3 # 그래프 Y축 고정용
-
-    # --- [2. UI 구성 (Tabs)] ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 수질 분석", "🔮 성능 열화", "🚨 정밀 진단", "💊 Chemical Program (약품)"])
-
+    # [Tab 1] 수질 분석 및 데이터 입력 (pH 입력창 추가)
     with tab1:
-        st.subheader("Step 1. Water Analysis & Brine Prediction")
+        st.subheader("Step 1. Feed Water Analysis & Brine Prediction")
+        
+        # [수정 2] 원수 pH, 수온, 회수율 입력을 메인 화면(Tab 1)으로 이동
+        col_input_top = st.columns(4)
+        with col_input_top[0]:
+            in_ph = st.number_input("원수 pH", value=7.5, step=0.1, format="%.2f", key="ro_in_ph")
+        with col_input_top[1]:
+            in_temp = st.number_input("원수 수온 (°C)", value=25.0, step=1.0, format="%.1f", key="ro_in_temp")
+        with col_input_top[2]:
+            in_rec = st.number_input("설계 회수율 (%)", value=75.0, step=1.0, format="%.1f", key="ro_in_rec")
+        with col_input_top[3]:
+            in_flow = st.number_input("생산 유량 (m3/hr)", value=50.0, step=1.0, key="ro_in_flow")
+
+        st.divider()
+
+        # 이온 데이터 입력 및 결과 표시
         col_t1_1, col_t1_2 = st.columns([1, 1.2])
+        
         with col_t1_1:
-            ed_ro = st.data_editor(st.session_state.ro_v26_data, hide_index=True, key="ro_editor_v26_final")
+            st.markdown("###### 🧪 이온 농도 입력 (mg/L)")
+            ed_ro = st.data_editor(st.session_state.ro_v26_data, hide_index=True, key="ro_editor_v26_final", height=380)
+            
+            # 데이터 변경 감지 및 저장
             if not ed_ro.equals(st.session_state.ro_v26_data):
                 st.session_state.ro_v26_data = ed_ro
                 st.rerun()
-            if st.button("🚀 자동 이온 발란스 보정", key="btn_adj_v26"):
+            
+            # [수정 1-2] 이온 밸런스 자동 보정 로직 정상화
+            if st.button("🚀 자동 이온 발란스 보정 (Auto-Balance)", key="btn_adj_v26", use_container_width=True):
                 diff = meq_ani - meq_cat
-                if diff > 0:
-                    val = diff * 23.0
-                    st.session_state.ro_v26_data.loc[st.session_state.ro_v26_data['항목'] == 'Na', '농도 (mg/L)'] += val
-                    st.session_state.ro_adj_msg = f"✅ **보정 내역:** 부족한 양이온을 채우기 위해 **Na+ 이온 {val:.1f} mg/L를 추가**했습니다."
+                if abs(diff) < 0.01:
+                    st.session_state.ro_adj_msg = "✅ 이미 밸런스가 맞습니다."
+                elif diff > 0:
+                    # 음이온 과다 -> 양이온(Na) 추가
+                    val_add = diff * 23.0
+                    st.session_state.ro_v26_data.loc[st.session_state.ro_v26_data['항목'] == 'Na', '농도 (mg/L)'] += val_add
+                    st.session_state.ro_adj_msg = f"✅ **보정 완료:** 부족한 양이온(Cation)을 맞추기 위해 **Na {val_add:.1f} mg/L**를 추가했습니다."
                 else:
-                    val = abs(diff) * 35.5
-                    st.session_state.ro_v26_data.loc[st.session_state.ro_v26_data['항목'] == 'Cl', '농도 (mg/L)'] += val
-                    st.session_state.ro_adj_msg = f"✅ **보정 내역:** 부족한 음이온을 채우기 위해 **Cl- 이온 {val:.1f} mg/L를 추가**했습니다."
+                    # 양이온 과다 -> 음이온(Cl) 추가
+                    val_add = abs(diff) * 35.5
+                    st.session_state.ro_v26_data.loc[st.session_state.ro_v26_data['항목'] == 'Cl', '농도 (mg/L)'] += val_add
+                    st.session_state.ro_adj_msg = f"✅ **보정 완료:** 부족한 음이온(Anion)을 맞추기 위해 **Cl {val_add:.1f} mg/L**를 추가했습니다."
                 st.rerun()
-            st.info(st.session_state.ro_adj_msg)
+            
+            # 보정 결과 메시지 출력
+            if "✅" in st.session_state.ro_adj_msg:
+                st.success(st.session_state.ro_adj_msg)
+            else:
+                st.info(st.session_state.ro_adj_msg)
 
         with col_t1_2:
-            st.metric("이온 밸런스 오차", f"{b_err_final:.2f}%", delta="정상" if abs(b_err_final) <= 5.0 else "확인 요망")
-            st.markdown(f"#### ✨ 예측 농축수 수질 (소수점 1자리 적용)")
-            p_targets = ['Ca', 'SO4', 'SiO2', 'PO4']
-            # [요청 1] 소수점 1자리 정렬 테이블
-            st.table(pd.DataFrame({
-                '항목': p_targets, 
-                '원수 (Feed)': [f"{v_main[i]:.1f}" for i in p_targets], 
-                '농축수 (Brine)': [f"{(v_main[i]*cf_final):.1f}" for i in p_targets]
-            }))
+            # [수정 3] 입력받은 pH와 회수율로 농축수 pH 계산
+            cf_final = 1 / (1 - (in_rec / 100))
+            brine_tds_final = sum(v_main.values()) * cf_final
+            # 농축수 pH 예측식: Feed pH + log(CF)
+            brine_ph_final = in_ph + math.log10(cf_final)
 
+            st.markdown("###### 📊 Simulation Result (Brine)")
+            
+            # 주요 지표 메트릭
+            m1, m2, m3 = st.columns(3)
+            m1.metric("농축수 pH", f"{brine_ph_final:.2f}", f"+{brine_ph_final - in_ph:.2f}")
+            m2.metric("농축수 TDS", f"{brine_tds_final:.0f} ppm", f"x{cf_final:.1f}")
+            
+            err_color = "normal"
+            if abs(b_err_final) > 5.0: err_color = "inverse"
+            m3.metric("이온 밸런스 오차", f"{b_err_final:.2f}%", delta_color=err_color)
+
+            st.markdown("---")
+            st.markdown(f"#### ✨ 농축수 예상 수질 (Concentrate)")
+            p_targets = ['Ca', 'SO4', 'SiO2', 'PO4', 'Na', 'Cl']
+            
+            # 수질 비교 테이블 생성
+            comp_df = pd.DataFrame({
+                '항목': p_targets,
+                '원수 (Feed)': [f"{v_main[i]:.1f}" for i in p_targets],
+                '농축수 (Brine)': [f"{(v_main[i]*cf_final):.1f}" for i in p_targets],
+                '농축비': [f"x{cf_final:.1f}" for _ in p_targets]
+            })
+            st.table(comp_df)
+
+    # [Tab 2] 성능 열화 시뮬레이션
     with tab2:
         st.subheader("Step 2. 성능 열화(Degradation) 시뮬레이션")
-        # [요청 2] 수원별 가이드라인 복구
-        with st.expander("💡 수원별 권장 연간 변화율 가이드 (Winflows)", expanded=False):
-            st.markdown("| 수원 종류 | 연간 유량 감소 (A) | 연간 염투과 증가 (B) |\n| :--- | :---: | :---: |\n| **지하수** | 2~3% | 3~5% |\n| **표면수** | 5~7% | 10~12% |\n| **폐수** | 10~15% | 15~20% |")
-
+        
         c_t2_1, c_t2_2 = st.columns(2)
         with c_t2_1: a_rate_s = st.slider("연간 유량 감소율 (%)", 0.0, 15.0, 5.0, key="a_s")
         with c_t2_2: b_rate_s = st.slider("연간 염투과 증가율 (%)", 0.0, 25.0, 10.0, key="b_s")
         op_y = st.slider("📅 멤브레인 사용 년수 (Years)", 0.0, 10.0, 3.0, 0.5, key="y_s")
         
+        # 현재 유량/전도도 (입력값이 없으므로 추정치 사용 혹은 Tab 1값 연동)
+        # Tab 1의 생산유량(in_flow)을 기준으로 계산
+        base_flow = in_flow
+        base_cond = sum(v_main.values()) * 0.6 # TDS -> Cond 대략 환산
+        
         a_f = (1 - (a_rate_s / 100)) ** op_y
         b_f = (1 + (b_rate_s / 100)) ** op_y
-        p_f, p_c = c_flow_side * a_f, c_cond_side * b_f
+        p_f, p_c = base_flow * a_f, base_cond * b_f
 
-        m_t2_1, m_t2_2, m_t2_3 = st.columns(3)
+        m_t2_1, m_t2_2 = st.columns(2)
         m_t2_1.metric("예상 생산 유량", f"{p_f:.1f} m³/h", f"{int((a_f-1)*100)}% 감소")
-        m_t2_2.metric("예상 전도도", f"{p_c:.1f} μS/cm", f"+{int((b_f-1)*100)}% 상승", delta_color="inverse")
-        m_t2_3.metric("A / B Factor", f"{a_f:.2f} / {b_f:.2f}")
+        m_t2_2.metric("예상 생산수 전도도", f"{p_c:.1f} μS/cm", f"+{int((b_f-1)*100)}% 상승", delta_color="inverse")
 
-        # 그래프 (보존)
+        # 그래프
         y_ax = np.linspace(0, 10, 21)
-        f_cv = [c_flow_side * ((1 - (a_rate_s / 100)) ** y) for y in y_ax]
-        c_cv = [c_cond_side * ((1 + (b_rate_s / 100)) ** y) for y in y_ax]
-        g_t2_1, g_t2_2 = st.columns(2)
-        with g_t2_1:
-            fig_f = go.Figure(); fig_f.add_trace(go.Scatter(x=y_ax, y=f_cv, line=dict(color='#3498DB', width=3)))
-            fig_f.add_trace(go.Scatter(x=[op_y], y=[p_f], mode='markers+text', text=[f"{p_f:.1f}"], textposition="top right", marker=dict(color='red', size=12)))
+        f_cv = [base_flow * ((1 - (a_rate_s / 100)) ** y) for y in y_ax]
+        c_cv = [base_cond * ((1 + (b_rate_s / 100)) ** y) for y in y_ax]
+        
+        g1, g2 = st.columns(2)
+        with g1:
+            fig_f = go.Figure()
+            fig_f.add_trace(go.Scatter(x=y_ax, y=f_cv, line=dict(color='#3498DB', width=3)))
+            fig_f.update_layout(title="Flow Decline Curve", xaxis_title="Years", yaxis_title="Flow")
             st.plotly_chart(fig_f, use_container_width=True)
-        with g_t2_2:
-            fig_c = go.Figure(); fig_c.add_trace(go.Scatter(x=y_ax, y=c_cv, line=dict(color='#E74C3C', width=3)))
-            fig_c.add_trace(go.Scatter(x=[op_y], y=[p_c], mode='markers+text', text=[f"{p_c:.1f}"], textposition="top right", marker=dict(color='black', size=12)))
+        with g2:
+            fig_c = go.Figure()
+            fig_c.add_trace(go.Scatter(x=y_ax, y=c_cv, line=dict(color='#E74C3C', width=3)))
+            fig_c.update_layout(title="Salt Passage Increase", xaxis_title="Years", yaxis_title="Cond")
             st.plotly_chart(fig_c, use_container_width=True)
 
+    # [Tab 3] 정밀 진단 (수정된 pH 반영)
     with tab3:
-        # [요청 3] 정밀 진단 연동 확인
         st.subheader("🚨 Brine 정밀 진단 (Engineering Basis)")
-        st.warning(f"💡 분석 근거: 농축수 TDS {brine_tds_final:.0f} ppm 기준 {idx_label_final} 지수 적용")
-        st.plotly_chart(px.bar(x=sc_items_list, y=u_pot_final, color=sc_items_list, title="성분별 포화도 (%)", text_auto='.1f'), use_container_width=True)
+        st.info(f"💡 진단 기준: 농축수 pH **{brine_ph_final:.2f}**, TDS **{brine_tds_final:.0f} ppm** (CF: {cf_final:.1f}배)")
         
-        for name, pot in zip(sc_items_list, u_pot_final):
+        # 스케일 잠재력 계산 (수정된 농축수 pH 적용)
+        sc_items = ['CaCO3', 'CaSO4', 'BaSO4', 'SiO2', 'PO4']
+        # LSI 간이식: (pH - 8.2)*50 + 115 (예시) -> 실제 LSI 로직 필요시 엔진 연동 권장
+        # 여기서는 그래프용 인덱스로 변환
+        pots = [
+            (brine_ph_final - 8.2) * 50 + 115, 
+            (v_main['Ca'] * v_main['SO4'] * (cf_final**2)) / 24, 
+            112.5, 
+            (v_main['SiO2'] * cf_final) / 1.2, 
+            (v_main['Ca'] * v_main['PO4'] * (cf_final**2)) / 0.5
+        ]
+        
+        st.plotly_chart(px.bar(x=sc_items, y=pots, color=sc_items, title="Saturation Level (%)", text_auto='.1f'), use_container_width=True)
+        
+        for name, pot in zip(sc_items, pots):
             if pot > 100: st.error(f"🔴 {name}: {pot:.1f}% (석출 위험)")
             else: st.success(f"🟢 {name}: {pot:.1f}% (안정)")
 
+    # [Tab 4] 약품 프로그램 (약품 과다 오류는 RO가 아닌 Cooling 이슈였으나, RO도 유량 기준 확인)
     with tab4:
-        # [요청 4] 약품 변경 실시간 연동 및 Y축 동기화
         st.subheader("💊 Chemical Program (약품)")
         
-        # 1. 자동 추천 로직
-        rec_p = "HRD-3000" if u_pot_final[3] > 100 else "HRD-2200"
+        rec_p = "HRD-3000" if pots[3] > 100 else "HRD-2200" # 실리카 높으면 3000
         st.success(f"🎯 **Technical Prescription:** {rec_p}")
 
-        # [수정] 약품 선택 및 주입농도 입력 필드 추가
         c1, c2 = st.columns(2)
         with c1:
             sel_as = st.selectbox("🎯 처방 제품 선택:", [a['Name'] for a in PRODUCT_CATALOG['RO']['Antiscalant']], key="chem_v26")
             as_info = next(item for item in PRODUCT_CATALOG['RO']['Antiscalant'] if item['Name'] == sel_as)
         with c2:
-            # 냉각수/보일러처럼 주입농도를 직접 입력할 수 있도록 number_input 추가
-            ro_dosage = st.number_input("주입농도 (ppm)", value=float(as_info['Dosage']), step=0.5, key="ro_dosage_val")
+            ro_dosage = st.number_input("주입농도 (ppm)", value=float(as_info['Dosage']), step=0.5, key="ro_dos_val")
         
-        # 3. 효과 계산 (타겟 성분 85% 억제 로직 유지)
-        t_pot = [p * 0.15 if any(t in as_info.get('Target', []) for t in [name, name[:2], 'LSI' if name == 'CaCO3' else '']) else p * 0.4 for name, p in zip(sc_items_list, u_pot_final)]
-
-        # [요청] Y축 고정 그래프 (시각적 차이 극대화)
-        cg1, cg2 = st.columns(2)
-        with cg1:
-            st.error("🚨 Untreated (미처리)")
-            f_pre = px.bar(x=sc_items_list, y=u_pot_final, color_discrete_sequence=['#E74C3C'], text_auto='.1f')
-            f_pre.update_layout(yaxis=dict(range=[0, max_y_limit]))
-            st.plotly_chart(f_pre, use_container_width=True)
-        with cg2:
-            st.success(f"✅ Treated ({sel_as})")
-            f_post = px.bar(x=sc_items_list, y=t_pot, color_discrete_sequence=['#2ECC71'], text_auto='.1f')
-            f_post.update_layout(yaxis=dict(range=[0, max_y_limit]))
-            st.plotly_chart(f_post, use_container_width=True)
-
-        # [요청] 일일 약품 소요량 출력 (입력받은 ro_dosage 반영)
+        # RO 약품 투입량 = 원수 유량(Feed Flow) * 농도 * 24hr
+        # Tab 1의 생산량(in_flow)과 회수율(in_rec)로 원수 유량 역산
+        feed_flow_calc = in_flow / (in_rec / 100.0)
+        daily_usage = (feed_flow_calc * 24 * ro_dosage) / 1000.0
+        
         st.divider()
-        st.markdown("#### 📊 일일 약품 소요량 및 설계")
         m_e1, m_e2 = st.columns(2)
-        # 계산 시 as_info['Dosage'] 대신 사용자가 입력한 ro_dosage를 사용합니다.
-        usage_kg = (c_flow_side * 24 * ro_dosage) / 1000.0
-        m_e1.metric(f"일일 {sel_as} 소요량", f"{usage_kg:.1f} kg/day")
-        m_e2.metric("권장 CIP 탱크 용량", f"{(c_flow_side * 15 * 1.2):.0f} L")
-
+        m_e1.metric(f"일일 {sel_as} 소요량", f"{daily_usage:.1f} kg/day", help="Feed Flow 기준 계산")
+        m_e2.metric("권장 CIP 탱크 용량", f"{(feed_flow_calc * 0.15):.1f} m³")
 # ==============================================================================
 # [Module 4] Wastewater Reuse: Smart Engineering (안전 경고 강화 버전)
 # ==============================================================================
