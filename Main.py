@@ -115,64 +115,118 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# [데이터 로드] 엑셀 파일(chemical_db.xlsx) 연동 시스템 (호환성 패치 Ver.)
+# [Helper] 엑셀 카탈로그 로더 (최종 수정본: 키 불일치 및 모호한 타입 자동 보정)
 # ==============================================================================
-@st.cache_data(show_spinner=False)
 def load_product_catalog_from_excel():
     excel_file = 'chemical_db.xlsx'
-    
-    # 1. 엑셀 파일 존재 여부 확인 (경로 보정)
     current_dir = os.getcwd()
     file_path = os.path.join(current_dir, excel_file)
-    
-    if not os.path.exists(file_path):
-        st.error(f"🚨 엑셀 파일({excel_file})을 찾을 수 없습니다.")
-        return {} 
 
-    try:
-        # 2. 엑셀 읽기
-        df = pd.read_excel(file_path)
-        
-        # 3. 데이터 변환
-        catalog = {}
-        
-        for _, row in df.iterrows():
-            sys = row['System']
-            p_type = row['Type']
-            
-            if sys not in catalog: catalog[sys] = {}
-            if p_type not in catalog[sys]: catalog[sys][p_type] = []
-            
-            # Target (리스트 변환)
-            target_raw = row.get('Target', '')
-            if isinstance(target_raw, str):
-                target_list = [t.strip() for t in target_raw.split(',')]
-            else:
-                target_list = [str(target_raw)]
+    # 1. 카탈로그 구조 초기화 (Main.py가 사용하는 Key와 100% 일치시킴)
+    catalog = {
+        'Cooling': { 'Main_Inhibitor': [], 'Biocide': [], 'Dispersant': [] },
+        'Boiler':  { 
+            'Oxygen_Scavenger': [], 
+            'Scale_Disp': [],  # [수정] Scale_Inhibitor -> Scale_Disp (화면 코드와 일치)
+            'Condensate': [] 
+        },
+        'RO':      { 
+            'Antiscalant': [], 
+            'CIP_Acid': [], 
+            'CIP_Alk': [] 
+        }
+    }
 
-            # [핵심 수정] 엑셀 컬럼과 프로그램 코드가 찾는 이름(Key)을 서로 맞춰줌
-            item = {
-                'Name': row['Name'],
-                'Desc': row['Desc'],
-                'Dosage': float(row['Dosage']),
+    # 2. 비상용 기본 데이터 (Fallback Data) - 엑셀 없을 때 사용
+    fallback_data = {
+        'Cooling': {
+            'Main_Inhibitor': [{'Name': 'Cool-100', 'Type': 'Main_Inhibitor', 'Desc': 'Standard', 'Feature': 'Standard', 'Dosage': 50, 'Target': ['Corrosion']}],
+            'Biocide': [{'Name': 'Bio-Kill', 'Type': 'Biocide', 'Desc': 'Oxidizing', 'Feature': 'Oxidizing', 'Dosage': 10, 'Target': ['Bacteria']}],
+            'Dispersant': [{'Name': 'Disp-200', 'Type': 'Dispersant', 'Desc': 'Polymer', 'Feature': 'Polymer', 'Dosage': 20, 'Target': ['Scale']}]
+        },
+        'Boiler': {
+            'Oxygen_Scavenger': [{'Name': 'Oxy-Zero', 'Type': 'Oxygen_Scavenger', 'Desc': 'Sulfite', 'Feature': 'Sulfite', 'Dosage': 30, 'Target': ['Oxygen']}],
+            'Scale_Disp': [{'Name': 'Scale-X', 'Type': 'Scale_Disp', 'Desc': 'Polymer', 'Feature': 'Polymer', 'Dosage': 40, 'Target': ['Scale']}], # Key 수정됨
+            'Condensate': [{'Name': 'Steam-Save', 'Type': 'Condensate', 'Desc': 'Amine', 'Feature': 'Amine', 'Dosage': 15, 'Target': ['pH']}]
+        },
+        'RO': {
+            'Antiscalant': [{'Name': 'RO-ScaleStop', 'Type': 'Antiscalant', 'Desc': 'General', 'Feature': 'General', 'Dosage': 3.0, 'Target': ['CaCO3']}],
+            'CIP_Acid': [{'Name': 'RO-Acid Clean', 'Type': 'CIP_Acid', 'Desc': 'pH 2.0', 'Feature': 'pH 2.0', 'Dosage': 2.0, 'Target': ['Scale']}],
+            'CIP_Alk': [{'Name': 'RO-Alk Clean', 'Type': 'CIP_Alk', 'Desc': 'pH 12.0', 'Feature': 'pH 12.0', 'Dosage': 2.0, 'Target': ['Bio']}]
+        }
+    }
+
+    # 3. 엑셀 파일 읽기 및 스마트 매핑
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_excel(file_path)
+            # 컬럼명 공백 제거
+            df.columns = [str(c).strip() for c in df.columns]
+
+            for _, row in df.iterrows():
+                sys = str(row.get('System', '')).strip()
+                raw_type = str(row.get('Type', '')).strip()
                 
-                # [호환성 매핑] 프로그램이 'Feature'나 'Type'을 찾을 때 에러가 안 나도록 연결
-                'Feature': row['Desc'],      # 코드의 Feature = 엑셀의 Desc
-                'Type': row.get('Target', ''), # 코드의 Type = 엑셀의 Target (문자열)
+                # [스마트 매핑] 엑셀의 다양한 표현을 프로그램 표준 Key로 자동 변환
+                p_type = raw_type 
+
+                # (1) Cooling 매핑
+                if sys == 'Cooling':
+                    if raw_type in ['Inhibitor', 'Corrosion Inhibitor', 'Scale/Corrosion']: p_type = 'Main_Inhibitor'
+                    elif raw_type in ['Biocides', 'Biocide']: p_type = 'Biocide'
                 
-                'Target': target_list,       # 리스트 형태의 Target
-                'Criteria': row.get('Criteria', '')
-            }
-            
-            catalog[sys][p_type].append(item)
-            
-        return catalog
+                # (2) Boiler 매핑 (Scale_Disp로 통일)
+                elif sys == 'Boiler':
+                    if 'Oxygen' in raw_type: p_type = 'Oxygen_Scavenger'
+                    # 'Scale', 'Sludge', 'Inhibitor' 등이 들어오면 무조건 'Scale_Disp'로 보냄
+                    elif any(x in raw_type for x in ['Scale', 'Sludge', 'Inhibitor', 'Disp']): p_type = 'Scale_Disp'
+                    elif 'Amine' in raw_type or 'Condensate' in raw_type: p_type = 'Condensate'
 
-    except Exception as e:
-        st.error(f"⚠️ 데이터 로드 중 오류: {e}")
-        return {}
+                # (3) RO 매핑 (CIP 자동 분류)
+                elif sys == 'RO':
+                    if 'Scale' in raw_type or 'Antiscalant' in raw_type: p_type = 'Antiscalant'
+                    # 엑셀에 'CIP'라고만 적혀있어도 이름/설명을 보고 산성/알칼리 판단
+                    elif 'CIP' in raw_type or 'Acid' in raw_type or 'Alk' in raw_type:
+                        name_desc = (str(row.get('Name', '')) + str(row.get('Desc', ''))).lower()
+                        if 'acid' in raw_type or 'acid' in name_desc or '산성' in name_desc or 'low ph' in name_desc:
+                            p_type = 'CIP_Acid'
+                        elif 'alk' in raw_type or 'alk' in name_desc or '알칼리' in name_desc or 'high ph' in name_desc or 'organic' in name_desc:
+                            p_type = 'CIP_Alk'
+                        else:
+                            # 정보가 부족하면 기본적으로 알칼리로 분류 (유기물 세정용)
+                            p_type = 'CIP_Alk'
 
-# 전역 변수에 로드
+                # 카탈로그에 해당 시스템/타입이 존재할 때만 추가
+                if sys in catalog and p_type in catalog[sys]:
+                    target_raw = row.get('Target', '')
+                    target_list = [t.strip() for t in str(target_raw).split(',')] if pd.notnull(target_raw) and str(target_raw).strip() != '' else []
+                    
+                    try: dose_val = float(row.get('Dosage', 0))
+                    except: dose_val = 0.0
+
+                    item = {
+                        'Name': str(row.get('Name', 'Unknown')),
+                        'Type': p_type,      # [중요] 프로그램 Key로 변환된 타입을 저장
+                        'Desc': str(row.get('Desc', '')),
+                        'Dosage': dose_val,
+                        'Target': target_list,
+                        'Feature': str(row.get('Desc', ''))
+                    }
+                    catalog[sys][p_type].append(item)
+
+        except Exception as e:
+            st.warning(f"⚠️ 엑셀 읽기 중 일부 오류: {e} (기본 데이터를 병합합니다)")
+
+    # 4. 데이터가 빈 항목은 기본값(Fallback)으로 채움
+    for sys in fallback_data:
+        for p_type in fallback_data[sys]:
+            if not catalog[sys][p_type]: 
+                catalog[sys][p_type] = fallback_data[sys][p_type]
+
+    return catalog
+# --------------------------------------------------------
+# [여기가 중요!] 함수 밖으로 빠져나와서 변수를 선언해야 함
+# --------------------------------------------------------
 PRODUCT_CATALOG = load_product_catalog_from_excel()
 
 # ==========================================
