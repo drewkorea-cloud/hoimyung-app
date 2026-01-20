@@ -159,7 +159,7 @@ def load_product_catalog_from_excel():
     # 3. 엑셀 파일 읽기 및 스마트 매핑
     if os.path.exists(file_path):
         try:
-            df = pd.read_excel(file_path)
+            df = pd.read_excel(file_path, engine='openpyxl')
             # 컬럼명 공백 제거
             df.columns = [str(c).strip() for c in df.columns]
 
