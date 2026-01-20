@@ -514,10 +514,10 @@ with st.sidebar:
     program_mode = st.radio(
         "Select Module:", 
         [
-            "1. Cooling Expert", 
-            "2. Boiler Master", 
+            "1. Cooling Master Pro", 
+            "2. Boiler Master Pro", 
             "3. RO Master Pro", 
-            "4. Wastewater Reuse", 
+            "4. Wastewater Master", 
             "5. Basic Engineering"
         ], 
         key="main_menu_mode"
