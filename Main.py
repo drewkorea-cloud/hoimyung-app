@@ -119,7 +119,7 @@ st.markdown("""
 # ==============================================================================
 def load_product_catalog_from_excel():
     excel_file = 'chemical_db.xlsx'
-    current_dir = os.getcwd()
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, excel_file)
 
     # 1. 카탈로그 구조 초기화 (Main.py가 사용하는 Key와 100% 일치시킴)
