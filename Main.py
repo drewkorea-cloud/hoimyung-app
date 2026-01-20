@@ -1714,10 +1714,78 @@ elif "RO" in program_mode:
             })
             st.table(comp_df)  
 
-    # [Tab 2] 성능 열화 시뮬레이션
+# ==========================================================================
+    # [Tab 2] 🔮 성능 열화 및 부하 진단 (Performance & Degradation) - 리모델링 완료
+    # ==========================================================================
     with tab2:
-        st.subheader("Step 2. 성능 열화(Degradation) 시뮬레이션")
-        with st.expander("💡 수원별 권장 연간 변화율 가이드 (Reference)", expanded=True):
+        st.subheader("Step 2. 멤브레인 부하 진단 및 수명 예측")
+        st.info("💡 **Flux(부하)**와 **수온**을 분석하여 막이 현재 '무리하게 운전되고 있는지' 진단하고, 미래 수명을 예측합니다.")
+
+        # --- [Section 1] 현재 운전 부하 진단 (부장님 지시사항: Flux & Temp) ---
+        with st.container(border=True):
+            st.markdown("#### 1️⃣ 현재 막 부하(Flux) 및 운전 상태 진단")
+            
+            # 1. 진단을 위한 상세 스펙 입력 (Tab 1 데이터 연동 + 추가 입력)
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1:
+                # Tab 1에서 입력받은 유량/회수율 가져오기
+                curr_perm_flow = in_flow  # 생산 유량 (m3/hr)
+                curr_rec = in_rec         # 회수율 (%)
+                # 공급 유량 역산 (Feed = Perm / Rec)
+                curr_feed_flow = curr_perm_flow / (curr_rec / 100.0) if curr_rec > 0 else 0
+                
+                st.metric("현재 공급 유량 (Calculated)", f"{curr_feed_flow:.1f} m³/hr", f"회수율 {curr_rec}%")
+            
+            with col_d2:
+                # Flux 계산을 위한 막 면적 입력
+                st.markdown("**⚙️ 막(Membrane) 구성**")
+                n_vessel = st.number_input("베셀 수량 (Vessels)", value=5, step=1, key="t2_ves")
+                n_ele = st.number_input("베셀당 엘리먼트 (Elements)", value=6, step=1, key="t2_ele")
+                area_per_ele = 400.0 # 8인치 표준 (ft2)
+            
+            with col_d3:
+                # 운전 압력 입력 (Tab 1에는 없었으므로 여기서 입력)
+                op_press = st.number_input("현재 운전 압력 (bar)", value=12.0, step=0.1, key="t2_press")
+                op_temp = in_temp # Tab 1 연동
+
+            # --- [Engine] 전문가 진단 계산 ---
+            # 1) Flux (GFD)
+            total_area = n_vessel * n_ele * area_per_ele
+            gpd = curr_perm_flow * 264.172 * 24 # m3/hr -> Gallon/day
+            flux_gfd = gpd / total_area if total_area > 0 else 0.0
+            
+            # 2) 온도 보정 압력 (TCF)
+            # TCF = exp(2700 * (1/(273+t) - 1/298)) -> 25도 기준 보정
+            tcf = math.exp(2700 * (1/(273 + op_temp) - 1/(273 + 25)))
+            norm_press = op_press * tcf
+
+            st.divider()
+
+            # --- [Result] 진단 결과 패널 ---
+            c_res1, c_res2 = st.columns(2)
+            
+            # ① Flux 진단
+            with c_res1:
+                st.metric("평균 플럭스 (Average Flux)", f"{flux_gfd:.1f} GFD")
+                if flux_gfd > 18.0:
+                    st.error("⛔ **과부하 (High Flux):** 설계 기준 초과! 막 오염이 매우 빠르게 진행됩니다.")
+                elif flux_gfd > 15.0:
+                    st.warning("⚠️ **주의 (Medium):** 다소 높은 부하입니다. 전처리가 완벽해야 합니다.")
+                else:
+                    st.success("✅ **안정 (Conservative):** 오염에 강한 안정적인 설계입니다.")
+
+            # ② 온도 보정 압력 진단
+            with c_res2:
+                st.metric("온도 보정 압력 (at 25℃)", f"{norm_press:.1f} bar", f"실측 {op_press} bar")
+                if norm_press > 15.0:
+                    st.error("⛔ **막힘 의심 (Fouling):** 수온 영향을 제외해도 압력이 높습니다. 스케일/오염이 진행 중입니다.")
+                else:
+                    st.success("✅ **정상 (Normal):** 현재 압력은 수온 영향이거나 정상 범위입니다.")
+
+        # --- [Section 2] 미래 성능 예측 (기존 코드 유지 및 디자인 개선) ---
+        st.markdown("")
+        st.markdown("#### 2️⃣ 장기 성능 열화 시뮬레이션 (Prediction)")
+        with st.expander("💡 수원별 권장 연간 변화율 가이드 (Reference)", expanded=False):
             st.markdown("""
             | 수원 종류 (Source) | 연간 유량 감소율 (Flux Decline) | 연간 염투과 증가율 (Salt Passage) |
             | :--- | :---: | :---: |
@@ -1727,28 +1795,23 @@ elif "RO" in program_mode:
             """)
         
         c_t2_1, c_t2_2 = st.columns(2)
-        with c_t2_1: a_rate_s = st.slider("연간 유량 감소율 (%)", 0.0, 20.0, 5.0, key="a_s")
-        with c_t2_2: b_rate_s = st.slider("연간 염투과 증가율 (%)", 0.0, 30.0, 10.0, key="b_s")
+        with c_t2_1: a_rate_s = st.slider("📉 연간 유량 감소율 (%)", 0.0, 20.0, 5.0, key="a_s")
+        with c_t2_2: b_rate_s = st.slider("📈 연간 염투과 증가율 (%)", 0.0, 30.0, 10.0, key="b_s")
         
-        op_y = st.slider("📅 멤브레인 사용 년수 (Years)", 0.0, 10.0, 3.0, 0.5, key="y_s")
+        op_y = st.slider("📅 운전 기간 시뮬레이션 (년)", 0.0, 10.0, 3.0, 0.5, key="y_s")
         
-        # Tab 1 입력값 연동
-        base_flow = in_flow 
+        # 시뮬레이션 계산
         base_cond = brine_tds_final / cf_final / 0.65 # TDS 역산 추정
         
         a_f = (1 - (a_rate_s / 100)) ** op_y
         b_f = (1 + (b_rate_s / 100)) ** op_y
         
-        p_f_res = base_flow * a_f
+        p_f_res = curr_perm_flow * a_f
         p_c_res = base_cond * b_f
 
-        m_t2_1, m_t2_2 = st.columns(2)
-        m_t2_1.metric("예상 생산 유량", f"{p_f_res:.1f} m³/h", f"{int((a_f-1)*100)}%")
-        m_t2_2.metric("예상 생산수 전도도", f"{p_c_res:.1f} μS/cm", f"+{int((b_f-1)*100)}%", delta_color="inverse")
-
-        # 그래프 시각화
+        # 결과 그래프
         y_ax = np.linspace(0, 10, 21)
-        f_cv = [base_flow * ((1 - (a_rate_s / 100)) ** y) for y in y_ax]
+        f_cv = [curr_perm_flow * ((1 - (a_rate_s / 100)) ** y) for y in y_ax]
         c_cv = [base_cond * ((1 + (b_rate_s / 100)) ** y) for y in y_ax]
         
         g1, g2 = st.columns(2)
@@ -1756,116 +1819,179 @@ elif "RO" in program_mode:
             fig_f = go.Figure()
             fig_f.add_trace(go.Scatter(x=y_ax, y=f_cv, line=dict(color='#3498DB', width=3), name='Flow'))
             fig_f.add_trace(go.Scatter(x=[op_y], y=[p_f_res], mode='markers+text', text=[f"{p_f_res:.1f}"], textposition="top right", marker=dict(color='red', size=12)))
-            fig_f.update_layout(title="Flow Decline Curve", xaxis_title="Years", yaxis_title="Flow (m3/h)", height=350)
+            fig_f.update_layout(title="생산 유량 감소 예측 (Flow Decline)", xaxis_title="년 (Year)", yaxis_title="유량 (m3/h)", height=300, margin=dict(l=20, r=20, t=40, b=20))
             st.plotly_chart(fig_f, use_container_width=True)
+            st.caption(f"🔻 {op_y}년 후 예상 유량: **{p_f_res:.1f} m³/h** ({-(1-a_f)*100:.1f}% 감소)")
+            
         with g2:
             fig_c = go.Figure()
             fig_c.add_trace(go.Scatter(x=y_ax, y=c_cv, line=dict(color='#E74C3C', width=3), name='Salt Passage'))
             fig_c.add_trace(go.Scatter(x=[op_y], y=[p_c_res], mode='markers+text', text=[f"{p_c_res:.1f}"], textposition="top right", marker=dict(color='black', size=12)))
-            fig_c.update_layout(title="Salt Passage Increase", xaxis_title="Years", yaxis_title="Conductivity", height=350)
+            fig_c.update_layout(title="전도도 상승 예측 (Salt Passage)", xaxis_title="년 (Year)", yaxis_title="전도도 (μS/cm)", height=300, margin=dict(l=20, r=20, t=40, b=20))
             st.plotly_chart(fig_c, use_container_width=True)
+            st.caption(f"🔺 {op_y}년 후 예상 전도도: **{p_c_res:.1f} μS/cm** ({+(b_f-1)*100:.1f}% 증가)")
 
-    # [Tab 3] 정밀 진단 (수정: Ba, Fe, Al 연동 로직 적용)
+# ==========================================================================
+    # [Tab 3] RO 정밀 진단 (기존 로직 유지 + Ba/Fe/Al 기능 추가 보완)
+    # ==========================================================================
     with tab3:
         st.subheader("🚨 Brine 정밀 진단 (Engineering Basis)")
+        
+        # 1. 기본 운전 데이터 표시 (기존 코드 유지)
         st.info(f"💡 진단 기준: 농축수 pH **{brine_ph_final:.2f}**, TDS **{brine_tds_final:.0f} ppm** (CF: {cf_final:.1f}배)")
         
-        # 스케일 잠재력 계산 (Ba 연동 수정)
+        # ----------------------------------------------------------------------
+        # [수정] 스케일 잠재력 계산 (Ba 연동 로직 추가)
+        # ----------------------------------------------------------------------
         sc_items = ['CaCO3', 'CaSO4', 'BaSO4', 'SiO2', 'PO4']
         
-        # [수정] BaSO4 Potential 계산 (입력 데이터 연동)
-        # BaSO4는 용해도가 매우 낮으므로 (Ksp ~ 1.1e-10), 미량이라도 농축되면 위험
-        ba_val = v_main.get('Ba', 0.0)
+        # 기존 데이터 가져오기 (없을 경우 0.0 처리하여 에러 방지)
+        ba_val = v_main.get('Ba', 0.0)  # [추가] 바륨
+        fe_val = v_main.get('Fe', 0.0)  # [추가] 철
+        al_val = v_main.get('Al', 0.0)  # [추가] 알루미늄
         so4_val = v_main.get('SO4', 0.0)
-        
-        # Ba 농도가 0이면 위험도 0, 아니면 계산 (임의 계수 적용하여 %화)
+
+        # [추가] BaSO4 Potential 계산 로직
+        # Ba는 용해도가 낮아 미량이어도 농축 시 위험 (임의 계수 50.0 적용하여 %화)
         ba_pot = (ba_val * so4_val * (cf_final**2)) * 50.0 if ba_val > 0 else 0.0
-        
+
+        # 기존 계산식 + Ba 추가
         pots = [
-            (brine_ph_final - 8.2) * 50 + 115,  # CaCO3
-            (v_main['Ca'] * v_main['SO4'] * (cf_final**2)) / 24, # CaSO4
-            ba_pot, # BaSO4 (실제 연동값)
-            (v_main['SiO2'] * cf_final) / 1.2, # SiO2
-            (v_main['Ca'] * v_main['PO4'] * (cf_final**2)) / 0.5 # PO4
+            (brine_ph_final - 8.2) * 50 + 115,               # CaCO3 (기존 식)
+            (v_main['Ca'] * v_main['SO4'] * (cf_final**2)) / 24, # CaSO4 (기존 식)
+            ba_pot,                                          # [추가] BaSO4
+            (v_main['SiO2'] * cf_final) / 1.2,               # SiO2 (기존 식)
+            (v_main['Ca'] * v_main['PO4'] * (cf_final**2)) / 0.5 # PO4 (기존 식)
         ]
         
-        # 차트 출력
+        # ----------------------------------------------------------------------
+        # [차트 출력] 기존 레이아웃 유지
+        # ----------------------------------------------------------------------
         fig_risk = px.bar(x=sc_items, y=pots, color=sc_items, 
-                          title="Saturation Level (%) - Ba/Fe/Al 반영", 
+                          title="Saturation Level (%) - Ba/Fe/Al 반영됨", 
                           text_auto='.1f')
         fig_risk.add_hline(y=100, line_dash="dot", line_color="red", annotation_text="Risk Limit")
         st.plotly_chart(fig_risk, use_container_width=True)
         
-        # 진단 메시지
+        # ----------------------------------------------------------------------
+        # [진단 메시지] 스케일 + 금속류(Metal) 오염 진단 분리 표시
+        # ----------------------------------------------------------------------
         c_diag1, c_diag2 = st.columns(2)
+        
+        # 1. 스케일 진단 (왼쪽)
         with c_diag1:
+            st.markdown("##### ⚠️ 무기물 스케일 진단")
             for name, pot in zip(sc_items, pots):
                 if pot > 100: 
                     st.error(f"🔴 **{name}: {pot:.1f}% (석출 위험)** - 스케일 방지제 필수")
+                elif pot > 80:
+                    st.warning(f"🔸 {name}: {pot:.1f}% (경고) - 모니터링 필요")
                 else: 
                     st.success(f"🟢 {name}: {pot:.1f}% (안정)")
         
+        # 2. 금속 이온 오염 진단 (오른쪽) - [신규 기능 추가]
         with c_diag2:
-            st.markdown("##### ⚠️ 금속 이온 오염 진단 (Metal Fouling)")
-            # [추가] Fe, Al 진단 로직
-            fe_conc_brine = v_main.get('Fe', 0.0) * cf_final
-            al_conc_brine = v_main.get('Al', 0.0) * cf_final
+            st.markdown("##### 🔩 금속 이온 오염 진단 (Metal Fouling)")
             
+            # Fe, Al 농축 농도 계산
+            fe_conc_brine = fe_val * cf_final
+            al_conc_brine = al_val * cf_final
+            
+            # 철(Fe) 진단
             if fe_conc_brine > 0.3:
-                st.warning(f"🔸 **철(Fe) 농축 농도 {fe_conc_brine:.2f} ppm** (관리기준 > 0.3)\n- 산화철 오염 가능성이 높습니다. 전처리 점검 필요.")
+                st.warning(f"🔸 **철(Fe) 농축: {fe_conc_brine:.2f} ppm** (기준 > 0.3)\n- 산화철 오염 가능성 높음. 전처리(폭기/여과) 점검.")
             else:
-                st.info(f"🔹 철(Fe) 농축 농도 {fe_conc_brine:.2f} ppm (안정)")
+                st.info(f"🔹 철(Fe) 농축: {fe_conc_brine:.2f} ppm (안정)")
                 
+            # 알루미늄(Al) 진단
             if al_conc_brine > 0.05:
-                st.warning(f"🔸 **알루미늄(Al) 농축 농도 {al_conc_brine:.2f} ppm** (관리기준 > 0.05)\n- 알루미늄계 스케일 주의. pH 조절 고려.")
+                st.warning(f"🔸 **알루미늄(Al) 농축: {al_conc_brine:.2f} ppm** (기준 > 0.05)\n- 알루미늄계 스케일 주의. 응집제 과다 주입 확인 필요.")
             else:
-                st.info(f"🔹 알루미늄(Al) 농축 농도 {al_conc_brine:.2f} ppm (안정)")
+                st.info(f"🔹 알루미늄(Al) 농축: {al_conc_brine:.2f} ppm (안정)")
 
-    # [Tab 4] Chemical Program (약품 시뮬레이션)
+# ==========================================================================
+    # [Tab 4] 💊 Chemical Program (자동 연동 & 스트레스 테스트)
+    # ==========================================================================
     with tab4:
-        st.subheader("💊 Chemical Dosing & Simulation (HRD Series)")
-        st.info("💡 코드에 등록된 **'HRD 시리즈'** 약품 데이터를 기반으로 스케일 제어 효율을 시뮬레이션합니다.")
+        st.subheader("💊 스케일 방지제 투입 시뮬레이션 (Scale Inhibitor)")
+        st.info("💡 **[Tab 1]**의 수질 분석 데이터를 **자동으로 가져와서** 약품 효율을 계산합니다.")
 
+        # ----------------------------------------------------------------------
+        # 1. 시뮬레이션 데이터 설정 (기본: Tab 1 데이터 자동 연동)
+        # ----------------------------------------------------------------------
+        
+        # [자동 연동] Tab 1(v_main)에서 데이터 가져오기
+        base_ca = float(v_main.get('Ca', 0.0))
+        base_mg = float(v_main.get('Mg', 0.0))
+        base_hco3 = float(v_main.get('HCO3', 0.0))
+        base_so4 = float(v_main.get('SO4', 0.0))
+        base_sio2 = float(v_main.get('SiO2', 0.0))
+        base_ba = float(v_main.get('Ba', 0.0))
+        base_po4 = float(v_main.get('PO4', 0.0))
+        
+        # [현황판] 현재 적용된 수질 요약 표시 (수정 불가능한 단순 조회용)
+        st.markdown("##### 1️⃣ 현재 시뮬레이션 기준 수질 (Design Basis)")
+        col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
+        col_summary1.metric("Ca 경도", f"{base_ca:.1f} ppm")
+        col_summary2.metric("Mg 경도", f"{base_mg:.1f} ppm")
+        col_summary3.metric("SiO2 (실리카)", f"{base_sio2:.1f} ppm")
+        col_summary4.metric("Ba (바륨)", f"{base_ba:.2f} ppm")
+
+        # [고급 기능] 가혹 조건 테스트 (숨김 처리) - 부장님 지시사항
+        with st.expander("⚙️ [고급] 가혹 조건 테스트 (Stress Test) - 수질 강제 변경 시 클릭", expanded=False):
+            st.caption("📢 **가혹 조건 시뮬레이션:** 수질이 갑자기 악화되었을 때(Shock) 약품이 버티는지 테스트할 때만 값을 변경하세요.")
+            
+            col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+            with col_i1:
+                s_ca = st.number_input("Ca (ppm)", value=base_ca, step=10.0, key="s_ca_stress")
+                s_mg = st.number_input("Mg (ppm)", value=base_mg, step=10.0, key="s_mg_stress")
+            with col_i2:
+                s_hco3 = st.number_input("HCO3 (ppm)", value=base_hco3, step=10.0, key="s_hco3_stress")
+                s_so4 = st.number_input("SO4 (ppm)", value=base_so4, step=10.0, key="s_so4_stress")
+            with col_i3:
+                s_ba = st.number_input("Ba (ppm)", value=base_ba, format="%.2f", key="s_ba_stress")
+                s_sio2 = st.number_input("SiO2 (ppm)", value=base_sio2, step=1.0, key="s_sio2_stress")
+            with col_i4:
+                # Mn은 v_main에 없으면 기본값 0.5 사용
+                s_mn = st.number_input("Mn (ppm)", value=0.5, format="%.2f", help="망간은 전처리 제거 항목", key="s_mn_stress")
+                s_po4 = st.number_input("PO4 (ppm)", value=base_po4, format="%.2f", key="s_po4_stress")
+        
+        st.divider()
+
+        # ----------------------------------------------------------------------
+        # 2. 약품 선정 및 투입량 결정 (기존 로직 유지)
+        # ----------------------------------------------------------------------
+        st.markdown("##### 2️⃣ 약품 선정 및 주입량 시뮬레이션")
+        
         ro_chem_list = PRODUCT_CATALOG['RO']['Antiscalant']
         CHEM_SIM_MAP = {
-            'HRD-2200 (General)':    {'CaCO3': 0.15, 'CaSO4': 0.20, 'BaSO4': 0.15, 'SrSO4': 0.20, 'SiO2': 0.60, 'Mn': 1.0, 'Struvite': 0.8},
+            'HRD-2200 (General)':    {'CaCO3': 0.15, 'CaSO4': 0.20, 'BaSO4': 0.15, 'SiO2': 0.60, 'Mn': 1.0, 'Struvite': 0.8},
             'HRD-3000 (High Silica)':{'CaCO3': 0.25, 'CaSO4': 0.30, 'BaSO4': 0.20, 'SrSO4': 0.25, 'SiO2': 0.20, 'Mn': 1.0, 'Struvite': 0.8},
             'HRD-2050 (Struvite)':   {'CaCO3': 0.20, 'CaSO4': 0.25, 'BaSO4': 0.20, 'SrSO4': 0.25, 'SiO2': 0.70, 'Mn': 1.0, 'Struvite': 0.15},
             'HRD-2240 (High Sulfate)':{'CaCO3': 0.20, 'CaSO4': 0.15, 'BaSO4': 0.05, 'SrSO4': 0.10, 'SiO2': 0.70, 'Mn': 1.0, 'Struvite': 0.8}
         }
 
-        with st.expander("🧪 시뮬레이션용 수질 농도 설정 (Ion Concentration)", expanded=True):
-            col_i1, col_i2, col_i3, col_i4 = st.columns(4)
-            # 탭 1의 입력값을 기본값으로 가져오기
-            with col_i1:
-                s_ca = st.number_input("Ca (ppm)", value=float(v_main['Ca']), step=10.0, key="s_ca_v2")
-                s_mg = st.number_input("Mg (ppm)", value=float(v_main['Mg']), step=10.0, key="s_mg_v2")
-            with col_i2:
-                s_hco3 = st.number_input("HCO3 (ppm)", value=float(v_main['HCO3']), step=10.0, key="s_hco3_v2")
-                s_so4 = st.number_input("SO4 (ppm)", value=float(v_main['SO4']), step=10.0, key="s_so4_v2")
-            with col_i3:
-                # Ba 값 연동
-                s_ba = st.number_input("Ba (ppm)", value=float(v_main.get('Ba', 0.1)), format="%.2f", key="s_ba_v2")
-                s_sio2 = st.number_input("SiO2 (ppm)", value=float(v_main['SiO2']), step=1.0, key="s_sio2_v2")
-            with col_i4:
-                # Fe/Al은 약품으로 제거 안됨 -> Mn 등 기타 항목
-                s_mn = st.number_input("Mn (ppm)", value=0.5, format="%.2f", help="망간은 약품으로 제거되지 않음", key="s_mn_v2")
-                s_po4 = st.number_input("PO4 (ppm)", value=float(v_main['PO4']), format="%.2f", key="s_po4_v2")
-
-        st.divider()
-
-        c_sel1, c_sel2 = st.columns([1.5, 1])
-        with c_sel1:
+        col_sel1, col_sel2 = st.columns([1.5, 1])
+        with col_sel1:
             chem_names = [item['Name'] for item in ro_chem_list]
-            sel_chem_name = st.selectbox("🎯 적용할 약품 선택 (PRODUCT_CATALOG)", chem_names)
+            sel_chem_name = st.selectbox("🎯 적용할 약품 (Product)", chem_names)
             sel_chem_info = next(item for item in ro_chem_list if item['Name'] == sel_chem_name)
+            
             st.caption(f"ℹ️ **특징:** {sel_chem_info['Desc']} | **Target:** {', '.join(sel_chem_info['Target'])}")
 
-        with c_sel2:
+        with col_sel2:
             rec_dose = float(sel_chem_info['Dosage'])
-            input_dose = st.slider("주입량 (Dosage, ppm)", 0.0, 10.0, rec_dose, 0.5, key="sim_dose_v2")
+            input_dose = st.slider("주입량 (Dosage, ppm)", 0.0, 10.0, rec_dose, 0.5, key="sim_dose_final")
+            
+            if input_dose < rec_dose:
+                st.warning(f"⚠️ 권장량({rec_dose}ppm)보다 낮습니다.")
+            else:
+                st.success(f"✅ 충분한 주입량입니다.")
 
-        # 시뮬레이션 로직
+        # ----------------------------------------------------------------------
+        # 3. 효율 계산 엔진 (Calculation Engine)
+        # ----------------------------------------------------------------------
+        # 1) 원수 조건 포화도 (Stress Test 값 적용)
         sat_raw = {
             "CaCO3": (s_ca * s_hco3) / 1000.0,    
             "CaSO4": (s_ca * s_so4) / 1500.0,
@@ -1875,44 +2001,59 @@ elif "RO" in program_mode:
             "Struvite": (s_mg * s_po4) * 10.0
         }
 
+        # 2) 약품 처리 후 포화도 (Dosage & Factor 적용)
         eff_factors = CHEM_SIM_MAP.get(sel_chem_name, 
                                      {'CaCO3': 0.5, 'CaSO4': 0.5, 'BaSO4': 0.5, 'SiO2': 0.8, 'Mn': 1.0, 'Struvite': 0.8})
         
         dose_ratio = input_dose / rec_dose if rec_dose > 0 else 0
-        dose_factor = min(dose_ratio, 1.2)
+        dose_factor = min(dose_ratio, 1.2) # 최대 1.2배까지만 효율 인정
 
         sat_treated = {}
         for ion, val in sat_raw.items():
             base_eff = eff_factors.get(ion, 1.0)
             final_factor = base_eff / (dose_factor**0.5) if dose_factor > 0 else 1.0
-            final_factor = max(0.05, min(final_factor, 1.0))
+            final_factor = max(0.05, min(final_factor, 1.0)) 
             sat_treated[ion] = val * final_factor
 
-        st.markdown(f"#### 📊 시뮬레이션 결과: **{sel_chem_name}**")
-        
+        # ----------------------------------------------------------------------
+        # 4. 결과 시각화 (Charts)
+        # ----------------------------------------------------------------------
+        st.divider()
+        st.subheader(f"📊 시뮬레이션 결과: {sel_chem_name} 적용 시")
+
         df_chart = pd.DataFrame({
             "Ion": list(sat_raw.keys()),
             "No Treatment (%)": list(sat_raw.values()),
             "With HRD Chemical (%)": list(sat_treated.values())
         })
-        
+
         col_g1, col_arr, col_g2 = st.columns([4, 0.5, 4])
+        
         with col_g1:
             st.markdown("**🔴 무처리 (Raw)**")
             st.bar_chart(df_chart.set_index("Ion")["No Treatment (%)"], color="#FF4B4B")
+        
         with col_arr:
              st.markdown("<br><br><div style='text-align:center; font-size:30px;'>👉</div>", unsafe_allow_html=True)
+        
         with col_g2:
             st.markdown(f"**🔵 {sel_chem_name} ({input_dose}ppm)**")
             st.bar_chart(df_chart.set_index("Ion")["With HRD Chemical (%)"], color="#2E86C1")
 
+        # ----------------------------------------------------------------------
+        # 5. 최종 부장님 코멘트 (AI Diagnosis)
+        # ----------------------------------------------------------------------
         st.markdown("##### 📝 전문 분석 (AI Diagnosis)")
-        if sat_treated["Mn"] > 100:
-            st.error(f"🚨 **[경고] 망간(Mn) 포화도 {sat_treated['Mn']:.0f}%** - 약품으로 제거되지 않습니다. 전처리 설비를 점검하십시오.")
         
-        targets = sel_chem_info['Target']
         is_safe = True
         
+        # 1. 망간 체크
+        if sat_treated["Mn"] > 100:
+            st.error(f"🚨 **[경고] 망간(Mn) 포화도 {sat_treated['Mn']:.0f}%** - 약품으로 제거되지 않습니다. 전처리 설비를 점검하십시오.")
+            is_safe = False
+        
+        # 2. 실리카 체크
+        targets = sel_chem_info['Target']
         if 'SiO2' in targets:
             if sat_treated['SiO2'] > 100:
                 st.warning(f"⚠️ 실리카 전용 약품({sel_chem_name})을 사용 중이나, 여전히 실리카 수치가 높습니다. 회수율 조정을 권장합니다.")
@@ -1920,33 +2061,40 @@ elif "RO" in program_mode:
         elif sat_treated['SiO2'] > 100:
              st.warning("⚠️ 실리카 수치가 높습니다. **HRD-3000 (High Silica)** 제품으로 변경을 고려하십시오.")
              is_safe = False
-             
+        
+        # 3. BaSO4 체크
         if 'BaSO4' in targets and sat_treated['BaSO4'] < 100:
             st.info("✅ 황산바륨(BaSO4) 제어가 효과적으로 이루어지고 있습니다.")
 
         if is_safe and sat_treated['Mn'] <= 100:
             st.success(f"✅ **{sel_chem_name}** 처방이 현재 수질에 적합합니다.")
 
-    # [Tab 5] 현장 진단 & CIP 스케줄러 (NEW)
+# ==========================================================================
+    # [Tab 5] 🛠️ RO 현장 진단 & CIP 통합 솔루션 (Diagnosis, Prediction, Action)
+    # ==========================================================================
     with tab5:
-        st.subheader("🛠️ RO 현장 진단 및 CIP 스케줄러 (Field Diagnosis)")
-        st.info("💡 현장 데이터를 입력하면 **정규화(Normalization)**를 거쳐 정확한 **CIP 시점과 세정 방법**을 알려줍니다.")
+        st.subheader("🛠️ RO 유지관리 통합 센터 (O&M One-Stop Center)")
+        st.info("💡 **[1.진단]** 현재 상태 확인 → **[2.예측]** 세정 시기 결정 → **[3.조치]** 약품/탱크 계산을 한 번에 수행합니다.")
 
-        # 1. 시스템 및 기준값 설정 (Commissioning Data)
+        # ----------------------------------------------------------------------
+        # [Step 1] 현장 운전 데이터 정밀 진단 (Normalization) - 기존 유지
+        # ----------------------------------------------------------------------
+        st.markdown("#### 1️⃣ 현장 운전 데이터 진단 (Normalization)")
+        
+        # 1. 초기 기준값 (Baseline)
         with st.expander("⚙️ 시스템 설정 및 초기 기준값 (Commissioning Data) - 클릭하여 설정", expanded=False):
             c_conf1, c_conf2 = st.columns(2)
             with c_conf1:
                 mem_model = st.selectbox("멤브레인 모델", ["CSM RE8040-BE", "LG BW 400 R", "DOW BW30-400"], key="ro_model_sel")
                 
-                # 멤브레인 스펙 DB (표준 유량/면적)
+                # 멤브레인 스펙 DB
                 mem_specs = {
-                    "CSM RE8040-BE": {"area": 400, "flow": 10500}, # GPD
+                    "CSM RE8040-BE": {"area": 400, "flow": 10500}, 
                     "LG BW 400 R": {"area": 400, "flow": 10500},
                     "DOW BW30-400": {"area": 400, "flow": 10500},
                 }
                 curr_spec = mem_specs[mem_model]
                 
-                # 배열 설정
                 col_arr1, col_arr2 = st.columns(2)
                 with col_arr1: n_st1 = st.number_input("1단 베셀 수량", value=4, step=1, key="n_st1")
                 with col_arr2: n_st2 = st.number_input("2단 베셀 수량", value=2, step=1, key="n_st2")
@@ -1972,7 +2120,6 @@ elif "RO" in program_mode:
             p_inter = st.number_input("2단 입구 압력 (bar)", value=11.5, step=0.1, key="p_inter")
         with col_f3:
             p_conc = st.number_input("농축수 압력 (bar)", value=9.5, step=0.1, key="p_conc")
-            # 차압 자동 계산 표시
             dp1_curr = p_feed - p_inter
             dp2_curr = p_inter - p_conc
             st.caption(f"Calculated DP: 1단 {dp1_curr:.1f} / 2단 {dp2_curr:.1f} bar")
@@ -1984,22 +2131,13 @@ elif "RO" in program_mode:
         if st.button("🚀 현장 진단 실행 (Analyze)", type="primary", use_container_width=True):
             
             # --- [Algorithm] 정규화 및 진단 로직 ---
-            
-            # A. 온도 보정 계수 (TCF) 계산
-            # 수온이 25도보다 낮으면 점도가 높아져 압력이 오르고 유량이 줄어듦 -> 이를 보정
             if f_temp < 1: f_temp = 1
             tcf = math.exp(0.03 * (25 - f_temp))
-            
-            # B. 차압 정규화 (Normalized DP)
-            # 유량이 줄어들면 마찰저항이 줄어 차압이 낮아보임 -> 유량 보정 필요
-            # 공식: Norm_DP = Meas_DP * TCF * (Base_Flow / Meas_Flow)^1.5 (난류 보정)
-            
             flow_corr = (base_flow / f_flow) ** 1.5 if f_flow > 0 else 1.0
             
             norm_dp1 = dp1_curr * tcf * flow_corr
             norm_dp2 = dp2_curr * tcf * flow_corr
             
-            # C. 상승률 계산 (%)
             rise_dp1 = ((norm_dp1 - base_dp1) / base_dp1) * 100
             rise_dp2 = ((norm_dp2 - base_dp2) / base_dp2) * 100
             
@@ -2007,7 +2145,6 @@ elif "RO" in program_mode:
             st.divider()
             st.subheader("📊 진단 결과 리포트")
             
-            # 1) 물리적 진단 (차압)
             col_res1, col_res2 = st.columns(2)
             
             with col_res1:
@@ -2017,13 +2154,9 @@ elif "RO" in program_mode:
                 
                 if rise_dp1 >= 15.0:
                     st.error("🚨 **[CRITICAL] 차압 15% 이상 상승!**")
-                    st.markdown("""
-                    - **원인:** 미생물 슬라임(Bio-fouling) 또는 전처리 필터 누설(SS)
-                    - **처방:** **알칼리 세정(Alkaline CIP, pH 11)** 즉시 수행 필요
-                    """)
+                    st.markdown("- **처방:** **알칼리 세정(Alkaline CIP, pH 11)** 즉시 수행 필요")
                 elif rise_dp1 >= 10.0:
                     st.warning("⚠️ **[WARNING] 차압 상승 추세**")
-                    st.markdown("- 세정 계획을 수립하십시오.")
                 else:
                     st.success("✅ **[NORMAL] 상태 양호**")
             
@@ -2034,35 +2167,100 @@ elif "RO" in program_mode:
                 
                 if rise_dp2 >= 15.0:
                     st.error("🚨 **[CRITICAL] 차압 15% 이상 상승!**")
-                    st.markdown("""
-                    - **원인:** 무기물 스케일(CaCO3, Silica) 석출 심각
-                    - **처방:** **산성 세정(Acid CIP, pH 2~3)** 즉시 수행 필요
-                    """)
+                    st.markdown("- **처방:** **산성 세정(Acid CIP, pH 2~3)** 즉시 수행 필요")
                 elif rise_dp2 >= 10.0:
                     st.warning("⚠️ **[WARNING] 스케일 생성 초기**")
-                    st.markdown("- 회수율을 낮추거나 스케일 방지제 주입량을 점검하십시오.")
                 else:
                     st.success("✅ **[NORMAL] 상태 양호**")
 
-            # 2) 화학적 진단 (전도도)
             st.markdown("---")
             st.markdown("##### 🧪 수질/전도도 추가 분석")
-            c_msg = []
-            
-            # 전도도 단순 상승률 비교 (임의 기준)
-            # 보통 2단 전도도가 급격히 오르면 스케일 농도분극 영향
-            if cond_p2 > (cond_p1 * 4): # 경험적 수치: 2단이 1단보다 4배 이상 높으면 위험
-                st.warning(f"⚠️ **2단 전도도({cond_p2})가 매우 높습니다.** 농축 배수가 한계에 도달했습니다. 스케일 위험이 큽니다.")
+            if cond_p2 > (cond_p1 * 4):
+                st.warning(f"⚠️ **2단 전도도({cond_p2})가 매우 높습니다.** 농축 배수가 한계에 도달했습니다.")
             else:
                 st.info(f"ℹ️ 생산수 수질 상태: 1단 {cond_p1}, 2단 {cond_p2} µS/cm (양호)")
 
-            # 온도 보정 코멘트
             if f_temp < 15.0:
-                st.caption(f"❄️ **참고:** 현재 수온({f_temp}°C)이 낮아 실제 압력은 높게 측정되지만, AI가 이를 보정하여 '정규화 차압'을 산출했습니다.")
+                st.caption(f"❄️ **참고:** 현재 수온({f_temp}°C)이 낮아 실제 압력은 높지만, 정규화(Normalization) 완료됨.")
         
-        # --- [Section 2] CIP 설비 엔지니어링 (NEW - TRILITE 가이드북 반영) ---
         st.divider()
-        st.markdown("#### 2️⃣ CIP 설비 엔지니어링 (Equipment Sizing)")
+
+        # ======================================================================
+        # [Step 2] 🤖 AI CIP 주기 예측 (New! 부장님 지시사항 삽입)
+        # ======================================================================
+        st.markdown("#### 2️⃣ 🤖 AI CIP 주기 예측 (Next Cleaning Prediction)")
+        
+        # [Layout] 좌측: 입력 / 우측: 결과
+        col_pred1, col_pred2 = st.columns([1, 2])
+        
+        with col_pred1:
+            st.markdown("**📅 예측 기준 데이터 (Baseline)**")
+            last_cip_date = st.date_input("마지막 세정일 (Last CIP)", value=pd.to_datetime("2024-01-01"))
+            
+            # 기준 유량은 위 Section 1에서 입력한 base_flow를 그대로 사용 (중복입력 방지)
+            st.caption(f"🔹 기준(초기) 유량: **{base_flow} m³/hr**")
+            st.caption(f"🔹 현재(실측) 유량: **{f_flow} m³/hr**")
+            
+            limit_decline = st.slider("관리 한계선 (Limit %)", 5, 20, 15, help="성능이 몇 % 떨어지면 세정할까요?")
+
+        with col_pred2:
+            # 예측 로직 (Linear Regression Logic)
+            from datetime import date, timedelta
+            
+            days_elapsed = (date.today() - last_cip_date).days
+            if days_elapsed < 1: days_elapsed = 1
+            
+            # 유량 감소율 계산
+            current_decline_pct = ((base_flow - f_flow) / base_flow) * 100
+            
+            # 일일 감소율
+            daily_decline_rate = current_decline_pct / days_elapsed
+            
+            # 잔여 수명 계산
+            remaining_pct = limit_decline - current_decline_pct
+            
+            if daily_decline_rate > 0:
+                days_remaining = remaining_pct / daily_decline_rate
+                predicted_date = date.today() + timedelta(days=int(days_remaining))
+            else:
+                days_remaining = 999 
+                predicted_date = date.today()
+            
+            # 결과 리포트
+            r1, r2, r3 = st.columns(3)
+            r1.metric("현재 성능 저하율", f"{current_decline_pct:.1f} %", f"경과 {days_elapsed}일")
+            
+            if current_decline_pct >= limit_decline:
+                r2.metric("CIP 권장 상태", "즉시 수행", delta_color="inverse")
+                r3.error("🚨 **CIP 시점 도달!**\n효율이 관리 기준 이하입니다.")
+            elif daily_decline_rate <= 0:
+                 r2.metric("예상 D-Day", "계산 불가")
+                 r3.info("✅ **매우 양호**\n성능 저하가 없습니다.")
+            else:
+                r2.metric("다음 세정 D-Day", f"D - {int(days_remaining)}일")
+                r3.success(f"🗓️ **예상 세정일:**\n**{predicted_date.strftime('%Y년 %m월 %d일')}**")
+
+        # [Graph] 오염 예측 곡선
+        if daily_decline_rate > 0 and days_remaining < 999:
+            x_past = [last_cip_date, date.today()]
+            y_past = [0, current_decline_pct]
+            x_future = [date.today(), predicted_date]
+            y_future = [current_decline_pct, limit_decline]
+            
+            fig_cip = go.Figure()
+            fig_cip.add_trace(go.Scatter(x=x_past, y=y_past, mode='lines+markers', name='현재 진행률', line=dict(color='blue')))
+            fig_cip.add_trace(go.Scatter(x=x_future, y=y_future, mode='lines', name='예측 추세', line=dict(color='red', dash='dot')))
+            fig_cip.add_hline(y=limit_decline, line_width=2, line_color="orange", annotation_text="관리 한계선")
+            fig_cip.update_layout(title="📉 멤브레인 오염 예측 곡선 (Fouling Trend)", height=300, margin=dict(t=40, b=20))
+            st.plotly_chart(fig_cip, use_container_width=True)
+            
+
+        st.divider()
+
+        # ----------------------------------------------------------------------
+        # [Step 3] CIP 설비 엔지니어링 (기존 Section 2 -> 3으로 이동)
+        # ----------------------------------------------------------------------
+        st.markdown("#### 3️⃣ CIP 설비 엔지니어링 (Equipment Sizing)")
         st.info("💡 현장 RO 배열에 적합한 **CIP 탱크 용량, 펌프 유량, 히터 용량**을 계산합니다.")
 
         with st.container(border=True):
@@ -2072,13 +2270,14 @@ elif "RO" in program_mode:
                 st.markdown("**⚙️ RO 시스템 및 세정 조건**")
                 cip_vessel_d = st.selectbox("베셀 구경 (Vessel Diameter)", ["8 inch", "4 inch", "16 inch"], index=0, key="cip_dia")
                 # CIP는 유량이 가장 많은 1단(Stage 1) 베셀 수량을 기준으로 설계함
-                num_vessels_st1 = st.number_input("1단 베셀 수량 (Stage 1 Vessels)", value=5, step=1, key="cip_ves_cnt")
+                # num_vessels_st1 변수는 위 Section 1에서 입력받은 n_st1을 사용 (자동 연동)
+                st.caption(f"적용 베셀 수량: {n_st1} Vessel (1단 기준)")
                 
                 cip_mode = st.radio("세정 모드 (Cleaning Mode)", 
                                   ["표준 세정 (Standard)", "고유량 세정 (High Flow)"], 
                                   help="심한 오염 시 고유량 세정이 필요할 수 있습니다.")
 
-                # TRILITE 가이드북 기반 유량 설정 (m3/hr per vessel)
+                # TRILITE 가이드북 기반 유량 설정
                 if "8 inch" in cip_vessel_d:
                     flow_per_vessel = 9.0 if "표준" in cip_mode else 12.0
                 elif "4 inch" in cip_vessel_d:
@@ -2087,10 +2286,10 @@ elif "RO" in program_mode:
                     flow_per_vessel = 36.0 if "표준" in cip_mode else 45.0
 
             # 계산 로직
-            total_cip_flow = num_vessels_st1 * flow_per_vessel
-            min_tank_vol = (total_cip_flow / 60) * 5  # 최소 5분 체류
-            rec_tank_vol = (total_cip_flow / 60) * 10 # 권장 10분 체류
-            heater_kw = (rec_tank_vol * 1000 * 20) / 860 / 2 # 20도 승온, 2시간 기준
+            total_cip_flow = n_st1 * flow_per_vessel
+            min_tank_vol = (total_cip_flow / 60) * 5  
+            rec_tank_vol = (total_cip_flow / 60) * 10 
+            heater_kw = (rec_tank_vol * 1000 * 20) / 860 / 2 
 
             with col_cip2:
                 st.markdown("**📊 설계 결과 (Calculated Specs)**")
@@ -2106,9 +2305,11 @@ elif "RO" in program_mode:
                 """)
 
         st.divider()
-# --- [Section 3] CIP 약품 선정 및 소요량 계산 (NEW! 추가된 부분) ---
-        st.divider()
-        st.markdown("#### 3️⃣ CIP Chemical Selection (세정제 선정 및 소요량)")
+
+        # ----------------------------------------------------------------------
+        # [Step 4] CIP 약품 선정 및 소요량 계산 (기존 Section 3 -> 4로 이동)
+        # ----------------------------------------------------------------------
+        st.markdown("#### 4️⃣ CIP Chemical Selection (세정제 선정 및 소요량)")
         st.info(f"💡 위에서 계산된 **CIP 탱크 용량({rec_tank_vol:.1f} m³)**을 기준으로 필요한 약품량을 자동 산출합니다.")
         
         # 엑셀 데이터 로드
@@ -2136,7 +2337,7 @@ elif "RO" in program_mode:
                     st.markdown("---")
                     st.metric("소요량 (1회 세정 기준)", f"{req_acid_kg:.1f} kg", f"Tank: {rec_tank_vol:.1f} m³")
                 else:
-                    st.warning("⚠️ 엑셀 DB에 산성 세정제가 없습니다. (make_excel.py 확인)")
+                    st.warning("⚠️ 엑셀 DB에 산성 세정제가 없습니다.")
 
         # 2. 알칼리 세정제 (Alkaline) 선정
         with col_cip_c2:
@@ -2156,16 +2357,18 @@ elif "RO" in program_mode:
                     st.markdown("---")
                     st.metric("소요량 (1회 세정 기준)", f"{req_alk_kg:.1f} kg", f"Tank: {rec_tank_vol:.1f} m³")
                 else:
-                    st.warning("⚠️ 엑셀 DB에 알칼리 세정제가 없습니다. (make_excel.py 확인)")
+                    st.warning("⚠️ 엑셀 DB에 알칼리 세정제가 없습니다.")
 
         st.divider()
 
-        # --- [Section 4] 막 보관 및 보존 가이드 (기존 유지, 섹션 번호만 변경) ---
+        # ----------------------------------------------------------------------
+        # [Step 5] 막 보관 가이드 (기존 Section 4 -> 5로 이동)
+        # ----------------------------------------------------------------------
         with st.expander("📦 RO 막 보관 및 장기 가동 정지 가이드 (Preservation)", expanded=False):
             st.markdown("### 🛑 장기 가동 정지 시 관리 요령")
             
             stop_period = st.selectbox("가동 정지 예상 기간", 
-                                     ["단기 (48시간 이내)", "중기 (2일 ~ 4주)", "장기 (4주 이상)"], key="stop_period")
+                                    ["단기 (48시간 이내)", "중기 (2일 ~ 4주)", "장기 (4주 이상)"], key="stop_period")
             
             c_p1, c_p2 = st.columns(2)
             with c_p1:
@@ -2181,9 +2384,7 @@ elif "RO" in program_mode:
                 **※ 신품 막 보관 팁 (TRILITE 가이드):**
                 - **건식 (Dry):** 12개월 이상 장기 보관 가능. 동파 위험 없음.
                 - **습식 (Wet):** 12개월 경과 시 미생물 오염 확인 필요. 5~45°C 보관 (동결 주의).
-                """)
-    with tab6:
-       draw_trouble_shooter("RO")
+                """) 
 # ==============================================================================
 # [Module 4] Wastewater Reuse: Smart Engineering (안전 경고 강화 버전)
 # ==============================================================================
@@ -2305,7 +2506,7 @@ elif "Engineering" in program_mode:
     st.title("📏 Basic Engineering & Sizing Calculator")
     st.info("설비 규격 및 여재 충진량 산출 (AFM IFU V23.4 규격 적용)")
 
-    tab_afm, tab_ro_sizing = st.tabs(["🧪 AFM/Media Filter Sizing", "💧 RO System Sizing"])
+    tab_afm, tab_ro_sizing, tab_piping= st.tabs(["🧪 AFM/Media Filter Sizing", "💧 RO System Sizing","📏 Piping & Hydraulics"])
 
     # --- [1. AFM/Media Filter Sizing] ---
     with tab_afm:
@@ -2551,3 +2752,130 @@ elif "Engineering" in program_mode:
             col_flow1, col_flow2 = st.columns(2)
             with col_flow1: st.metric("유입수 유량", f"{feed_flow:.1f} m³/hr")
             with col_flow2: st.metric("농축수 유량", f"{concentrate_flow:.1f} m³/hr")   
+# [Tab 3] 배관 유속 및 마찰 손실 계산 (New!)
+    # ==========================================================================
+    with tab_piping:
+        st.subheader("📏 배관 유속 및 마찰 손실 (Piping Hydraulics)")
+        st.info("💡 **Hazen-Williams 공식**을 사용하여 유속(Velocity)과 마찰 손실(Head Loss)을 정밀 계산합니다.")
+
+        # 1. 배관 데이터베이스 (ANSI/ASME B36.10M 표준)
+        # Key: 호칭경(A), Value: {SCH10: 내경mm, SCH40: 내경mm, SCH80: 내경mm}
+        PIPE_DB = {
+            "15A (1/2\")":  {"SCH 10": 17.1, "SCH 40": 15.8, "SCH 80": 13.9},
+            "20A (3/4\")":  {"SCH 10": 22.5, "SCH 40": 20.9, "SCH 80": 18.9},
+            "25A (1\")":    {"SCH 10": 27.9, "SCH 40": 26.6, "SCH 80": 24.3},
+            "32A (1-1/4\")":{"SCH 10": 36.6, "SCH 40": 35.1, "SCH 80": 32.5},
+            "40A (1-1/2\")":{"SCH 10": 42.7, "SCH 40": 40.9, "SCH 80": 38.1},
+            "50A (2\")":    {"SCH 10": 54.8, "SCH 40": 52.5, "SCH 80": 49.3},
+            "65A (2-1/2\")":{"SCH 10": 66.9, "SCH 40": 62.7, "SCH 80": 59.0},
+            "80A (3\")":    {"SCH 10": 82.8, "SCH 40": 77.9, "SCH 80": 73.7},
+            "100A (4\")":   {"SCH 10": 108.2, "SCH 40": 102.3, "SCH 80": 97.2},
+            "125A (5\")":   {"SCH 10": 134.5, "SCH 40": 128.2, "SCH 80": 122.3},
+            "150A (6\")":   {"SCH 10": 161.5, "SCH 40": 154.1, "SCH 80": 146.3},
+            "200A (8\")":   {"SCH 10": 211.6, "SCH 40": 202.7, "SCH 80": 193.7},
+            "250A (10\")":  {"SCH 10": 264.7, "SCH 40": 254.5, "SCH 80": 242.9},
+            "300A (12\")":  {"SCH 10": 314.7, "SCH 40": 303.2, "SCH 80": 288.9},
+            "350A (14\")":  {"SCH 10": 346.0, "SCH 40": 333.3, "SCH 80": 317.5},
+            "400A (16\")":  {"SCH 10": 396.8, "SCH 40": 381.0, "SCH 80": 363.5},
+        }
+
+        # 조도 계수 (C-Factor)
+        C_FACTOR = {
+            "PVC / PE / Plastic": 150,
+            "Stainless Steel (SUS)": 140,
+            "Carbon Steel (New)": 120,
+            "Carbon Steel (Old)": 100,
+            "Concrete": 120
+        }
+
+        # 2. 입력 섹션
+        col_p1, col_p2 = st.columns(2)
+        
+        with col_p1:
+            st.markdown("##### ⚙️ 운전 조건 (Condition)")
+            flow_m3 = st.number_input("유량 (Flow Rate, m³/hr)", value=50.0, step=1.0)
+            pipe_len = st.number_input("배관 길이 (Length, m)", value=100.0, step=10.0)
+            
+            st.markdown("##### 🧪 배관 재질 (Material)")
+            mat_sel = st.selectbox("재질 선택 (Roughness)", list(C_FACTOR.keys()))
+            c_val = C_FACTOR[mat_sel]
+            st.caption(f"적용 C-Factor: {c_val}")
+
+        with col_p2:
+            st.markdown("##### 📏 배관 규격 (Size & Schedule)")
+            sch_sel = st.radio("배관 두께 (Schedule)", ["SCH 10", "SCH 40", "SCH 80"], horizontal=True)
+            size_sel = st.selectbox("호칭경 (Nominal Dia)", list(PIPE_DB.keys()), index=8) # Default 100A
+            
+            # 실제 내경 조회
+            real_id_mm = PIPE_DB[size_sel].get(sch_sel, 0)
+            st.metric("실제 내경 (Inner Dia)", f"{real_id_mm} mm", f"{sch_sel} 기준")
+
+        st.divider()
+
+        # 3. 계산 엔진 (Calculation Engine)
+        if real_id_mm > 0 and flow_m3 > 0:
+            # A. 유속 계산 (Velocity)
+            # Area (m2) = pi * (d/2000)^2
+            area_m2 = math.pi * ((real_id_mm / 1000) / 2) ** 2
+            velocity = (flow_m3 / 3600) / area_m2 # m/s
+            
+            # B. 마찰 손실 계산 (Hazen-Williams)
+            # Head Loss (m) = 10.67 * L * Q^1.85 / (C^1.85 * d^4.87) 
+            # (Q in m3/s, d in m) -> 공식 변환 주의
+            
+            # 편의상 bar 단위 계산식 (Global Standard):
+            # dP (bar/100m) = 6.05 * 10^5 * (Q_m3h ^ 1.85) / (C ^ 1.85 * d_mm ^ 4.87)
+            dp_100m_bar = 6.05 * (10**5) * (flow_m3 ** 1.85) / ((c_val ** 1.85) * (real_id_mm ** 4.87))
+            total_dp_bar = dp_100m_bar * (pipe_len / 100.0)
+            total_head_m = total_dp_bar * 10.197 # bar -> mAq
+
+            # 4. 결과 리포트
+            st.subheader("📊 유체 역학 분석 결과")
+            
+            c_res1, c_res2, c_res3 = st.columns(3)
+            
+            # [Result 1] 유속 진단
+            with c_res1:
+                st.metric("유속 (Velocity)", f"{velocity:.2f} m/s")
+                
+                # 유속 가이드라인 (부장님 기준)
+                if velocity > 3.0:
+                    st.error("⛔ **유속 과다 (Too High)**\n- 침식(Erosion) 및 수격현상(Water Hammer) 위험.\n- 배관을 키우십시오.")
+                elif velocity > 2.5:
+                    st.warning("⚠️ **유속 높음 (High)**\n- 토출측 허용 한계이나 소음 발생 가능.")
+                elif velocity < 0.5:
+                    st.warning("⚠️ **유속 저하 (Too Low)**\n- 슬러지 침적(Sedimentation) 우려.")
+                else:
+                    st.success("✅ **적정 유속 (Good)**\n- (0.5 ~ 2.5 m/s) 범위 만족.")
+
+            # [Result 2] 마찰 손실
+            with c_res2:
+                st.metric("마찰 손실 (Pressure Drop)", f"{total_dp_bar:.3f} bar", f"길이 {pipe_len}m 기준")
+                st.caption(f"단위 손실: {dp_100m_bar:.3f} bar/100m")
+
+            # [Result 3] 펌프 양정 환산
+            with c_res3:
+                st.metric("손실 수두 (Head Loss)", f"{total_head_m:.2f} m")
+                st.info("💡 펌프 선정 시 이 값 이상의 양정(Head) 여유가 필요합니다.")
+
+            # 5. 추천 배관 사이즈 제안 (Auto Sizing)
+            st.markdown("---")
+            with st.expander("💡 **[AI 추천] 적정 배관 사이즈 찾기**", expanded=True):
+                # 1.5 ~ 2.0 m/s가 되도록 역산
+                target_v = 1.8 # m/s
+                req_area = (flow_m3 / 3600) / target_v
+                req_d_mm = math.sqrt(req_area / math.pi) * 2000
+                
+                # DB에서 가장 가까운 큰 사이즈 찾기
+                best_size = "N/A"
+                for size, specs in PIPE_DB.items():
+                    if specs["SCH 40"] >= req_d_mm:
+                        best_size = size
+                        break
+                
+                c_rec1, c_rec2 = st.columns([1, 3])
+                with c_rec1:
+                    st.markdown(f"### 👉 추천: **{best_size}**")
+                with c_rec2:
+                    st.caption(f"경제적 유속(1.8 m/s) 기준 계산된 최소 내경은 **{req_d_mm:.1f} mm** 입니다.")
+                    st.caption(f"현재 선택된 **{size_sel}** (내경 {real_id_mm}mm)와 비교해 보십시오.")
