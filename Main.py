@@ -19,7 +19,11 @@ import numpy as np
 
 # --- 1. 기본 설정 ---
 
-st.set_page_config(layout="wide", page_title="Water Solution Master (by Parker)")
+st.set_page_config(
+    layout="wide",
+    page_title="Water Master Pro",  # (선택) 제목도 깔끔하게 줄이면 좋습니다
+    page_icon="logo.png"            # ✅ 핵심! 여기에 파일명을 넣어야 아이콘이 됩니다.
+)
 
 
 # [스타일] CSS 스타일 정의 (표 겹침 오류 해결 Ver)
