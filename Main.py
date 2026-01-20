@@ -696,441 +696,263 @@ if "Cooling" in program_mode:
                 st.metric("비산수량 (Windage)", f"{windage:.2f} m³/hr", "0.05% Loss")
                 st.caption(f"💧 **보유수량:** {holding_vol:.0f} m³")
 
+  
+ # ======================================================================
+    # Tab 2: Water Chemistry (범위 입력 가능 + 디자인 보정 Ver)
     # ======================================================================
-
-    # Tab 2: Water Chemistry (pH 수식 변경)
-
-    # ======================================================================
-
     with tab2:
-
         st.subheader("2. Prediction & Diagnosis Simulator")
-
         st.markdown("보충수(Make-up) 수질을 기반으로 농축 후 순환수 수질을 **예측**하고 **5대 지수**를 진단합니다.")
 
-
-
+        # 1. 초기 데이터 설정
         if 'makeup_data' not in st.session_state:
-
             st.session_state.makeup_data = pd.DataFrame({
-
                 'Item': ['pH', 'Cond (µS)', 'Ca-H (ppm)', 'Mg-H (ppm)', 'M-Alk (ppm)', 'Cl (ppm)', 'SO4 (ppm)', 'SiO2 (ppm)'],
-
                 'Value': [7.5, 200.0, 40.0, 10.0, 50.0, 20.0, 10.0, 10.0]
-
             })
-
-
+        
+        # [관리 기준] 초기값 (반드시 따옴표로 감싸서 문자로 저장)
+        if 'cooling_limits' not in st.session_state:
+            st.session_state.cooling_limits = {
+                "pH": "8.3~9.0",        # 범위
+                "Calcium (Ca-H)": "800",# 상한값
+                "Magnesium (Mg-H)": "300",
+                "M-Alkalinity": "500",
+                "Chloride (Cl)": "500",
+                "Sulfate (SO4)": "1200",
+                "Silica (SiO2)": "150",
+                "Conductivity": "5000"
+            }
+            
+        # 결과 저장소
+        if 'sim_results' not in st.session_state:
+            st.session_state.sim_results = {}
+        if 'run_simulation' not in st.session_state:
+            st.session_state.run_simulation = False
 
         col_sim1, col_sim2 = st.columns([1, 1])
-
         
-
         with col_sim1:
-
             st.markdown("###### ① 보충수(Make-up) 수질 입력")
-
             edited_mu = st.data_editor(st.session_state.makeup_data, hide_index=True, key="mu_editor", height=280)
-
         
-
         with col_sim2:
-
             st.markdown("###### ② 운전 목표 및 관리 기준 설정")
-
             target_coc = st.slider("Target Cycles (목표 농축배수)", 1.0, 10.0, 5.0, 0.1, key="sim_coc")
-
             sim_temp = st.slider("Temperature (°C)", 10.0, 60.0, 35.0, 1.0, key="sim_temp")
-
             sim_turbidity = st.number_input("예상 탁도 (NTU) - Deposit 예측용", 0.0, 100.0, 10.0)
-
             
-
             use_acid = st.checkbox("Acid Feed (황산 주입 모드)", value=False)
 
-
-
             if use_acid:
-
                 target_ph = st.number_input("Target pH (Control)", 6.5, 8.5, 7.8, 0.1)
-
                 st.info("🧪 pH 컨트롤러 설정값으로 계산합니다.")
-
             else:
-
-                # 1. 기초 데이터 확보
-
                 try:
-
                     temp_mu = dict(zip(edited_mu['Item'], edited_mu['Value'])) 
-
                     base_alk = temp_mu.get('M-Alk (ppm)', 50.0)
-
                 except:
-
                     base_alk = 50.0
 
-
-
-                # 2. 농축 알칼리도 계산
-
                 cycle_alk = base_alk * target_coc
-
                 if cycle_alk < 1: cycle_alk = 1.0
-
-
-
-                # 3. pH 8.3 Breakpoint Logic (글로벌 표준)
-
-                # 알칼리도가 일정 수준(약 350~400ppm)을 넘으면 pH 8.3을 돌파하며 탄산(CO3) 완충 구간에 진입합니다.
-
-                # Threshold Point: Puckorius 식 기준 pH 8.3이 되는 Alk 값 = 약 370 ppm
-
                 
-
                 alk_threshold = 370.0 
-
-
-
                 if cycle_alk < alk_threshold:
-
-                    # [Case A: pH < 8.3 구간] Bicarbonate Dominant
-
-                    # 기울기가 더 가파른 수식 적용 (저농축 구간)
-
-                    # Formula: pH = 2.0 * log10(Alk) + 3.15 (보정식)
-
                     est_ph_raw = (2.0 * math.log10(cycle_alk)) + 3.15
-
                     phase_msg = "Bicarbonate Phase (pH < 8.3)"
-
                 else:
-
-                    # [Case B: pH >= 8.3 구간] Carbonate Buffering
-
-                    # 기울기가 완만해지는 Puckorius 평형 수식 적용 (고농축 구간)
-
-                    # Formula: pH = 1.465 * log10(Alk) + 4.54
-
                     est_ph_raw = (1.465 * math.log10(cycle_alk)) + 4.54
-
                     phase_msg = "Carbonate Buffer Phase (pH ≥ 8.3)"
 
-
-
-                # 4. 물리적 한계 (Ceiling)
-
-                # 대기 개방형 냉각탑은 통상 pH 9.3 이상 상승하기 어려움 (탄산염 평형)
-
                 est_ph = min(est_ph_raw, 9.3)
-
-
-
-                # 5. 결과 표시
-
                 target_ph = st.number_input(f"Predicted pH ({phase_msg})", value=float(f"{est_ph:.2f}"), disabled=True)
-
                 
-
-                # 분석 멘트
-
                 if est_ph >= 8.3:
-
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **탄산(CO3) 완충 구간** 진입 (pH 상승 둔화)")
-
+                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **탄산(CO3) 완충 구간** 진입")
                 else:
-
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **중탄산(HCO3) 지배 구간** (pH 상승 가속)")
-
+                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **중탄산(HCO3) 지배 구간**")
             
+            # [버튼] 실행
+            if st.button("🚀 Run Simulation (비교 분석)", type="primary", use_container_width=True):
+                st.session_state.makeup_data = edited_mu 
+                mu_dict = dict(zip(edited_mu['Item'], edited_mu['Value']))
+                
+                # 예측 계산
+                pred_ca = mu_dict['Ca-H (ppm)'] * target_coc
+                pred_mg = mu_dict['Mg-H (ppm)'] * target_coc
+                pred_cl = mu_dict['Cl (ppm)'] * target_coc
+                pred_sio2 = mu_dict['SiO2 (ppm)'] * target_coc
+                pred_cond = mu_dict['Cond (µS)'] * target_coc
+                
+                if use_acid:
+                    pred_alk = mu_dict['M-Alk (ppm)'] * target_coc * 0.6
+                    acid_so4 = (mu_dict['M-Alk (ppm)'] * target_coc) * 0.9
+                    pred_so4 = (mu_dict['SO4 (ppm)'] * target_coc) + acid_so4
+                else:
+                    pred_alk = mu_dict['M-Alk (ppm)'] * target_coc
+                    pred_so4 = mu_dict['SO4 (ppm)'] * target_coc
 
-            btn_run = st.button("🚀 Run Simulation (비교 분석)", type="primary", use_container_width=True)
+                # 지수 계산
+                temp_k = sim_temp + 273.15
+                tds_val = pred_cond * 0.7
+                
+                val_a = (math.log10(max(tds_val, 1)) - 1) / 10
+                val_b = -13.12 * math.log10(temp_k) + 34.55
+                val_c = math.log10(max(pred_ca, 1)) - 0.4
+                val_d = math.log10(max(pred_alk, 1))
+                
+                pHs = (9.3 + val_a + val_b) - (val_c + val_d)
+                
+                lsi = target_ph - pHs
+                rsi = (2 * pHs) - target_ph
+                p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
+                psi = (2 * pHs) - p_eq
+                ls_idx = (pred_cl + pred_so4) / pred_alk if pred_alk > 0 else 0
+                
+                # 결과 저장
+                st.session_state.sim_results = {
+                    'mu_dict': mu_dict,
+                    'pred_ca': pred_ca, 'pred_mg': pred_mg, 'pred_alk': pred_alk,
+                    'pred_cl': pred_cl, 'pred_so4': pred_so4, 'pred_sio2': pred_sio2,
+                    'pred_cond': pred_cond, 'target_ph': target_ph,
+                    'lsi': lsi, 'rsi': rsi, 'psi': psi, 'ls_idx': ls_idx,
+                    'sim_turbidity': sim_turbidity, 'target_coc': target_coc
+                }
+                st.session_state['sim_lsi'] = lsi
+                st.session_state['sim_target_ph'] = target_ph
+                st.session_state.run_simulation = True
 
-
-
-        if btn_run:
-
-            st.session_state.makeup_data = edited_mu 
-
-            mu_dict = dict(zip(edited_mu['Item'], edited_mu['Value']))
-
-            
-
-            pred_ca = mu_dict['Ca-H (ppm)'] * target_coc
-
-            pred_mg = mu_dict['Mg-H (ppm)'] * target_coc
-
-            pred_cl = mu_dict['Cl (ppm)'] * target_coc
-
-            pred_sio2 = mu_dict['SiO2 (ppm)'] * target_coc
-
-            pred_cond = mu_dict['Cond (µS)'] * target_coc
-
-            
-
-            if use_acid:
-
-                pred_alk = mu_dict['M-Alk (ppm)'] * target_coc * 0.6
-
-                acid_so4 = (mu_dict['M-Alk (ppm)'] * target_coc) * 0.9
-
-                pred_so4 = (mu_dict['SO4 (ppm)'] * target_coc) + acid_so4
-
-            else:
-
-                pred_alk = mu_dict['M-Alk (ppm)'] * target_coc
-
-                pred_so4 = mu_dict['SO4 (ppm)'] * target_coc
-
-
-
-            temp_k = sim_temp + 273.15
-
-            tds_val = pred_cond * 0.7
-
-            
-
-            val_a = (math.log10(max(tds_val, 1)) - 1) / 10
-
-            val_b = -13.12 * math.log10(temp_k) + 34.55
-
-            val_c = math.log10(max(pred_ca, 1)) - 0.4
-
-            val_d = math.log10(max(pred_alk, 1))
-
-            
-
-            pHs = (9.3 + val_a + val_b) - (val_c + val_d)
-
-            
-
-            lsi = target_ph - pHs
-
-            rsi = (2 * pHs) - target_ph
-
-            p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
-
-            psi = (2 * pHs) - p_eq
-
-            ls_idx = (pred_cl + pred_so4) / pred_alk if pred_alk > 0 else 0
-
-            
+        # ----------------------------------------------------------------------
+        # [결과 화면]
+        # ----------------------------------------------------------------------
+        if st.session_state.run_simulation:
+            res = st.session_state.sim_results
+            limits = st.session_state.cooling_limits
 
             st.divider()
-
-            st.subheader(f"📊 수질 예측 비교 분석 (농축배수: {target_coc}배)")
-
+            st.subheader(f"📊 수질 예측 비교 분석 (농축배수: {res['target_coc']}배)")
             
-
             comp_data = [
-
-                {"Item": "pH", "Make-up": mu_dict['pH'], "Cooling (Pred)": target_ph, "Limit (Max)": 9.0},
-
-                {"Item": "Calcium (Ca-H)", "Make-up": mu_dict['Ca-H (ppm)'], "Cooling (Pred)": pred_ca, "Limit (Max)": 800.0},
-
-                {"Item": "Magnesium (Mg-H)", "Make-up": mu_dict['Mg-H (ppm)'], "Cooling (Pred)": pred_mg, "Limit (Max)": 300.0},
-
-                {"Item": "M-Alkalinity", "Make-up": mu_dict['M-Alk (ppm)'], "Cooling (Pred)": pred_alk, "Limit (Max)": 500.0},
-
-                {"Item": "Chloride (Cl)", "Make-up": mu_dict['Cl (ppm)'], "Cooling (Pred)": pred_cl, "Limit (Max)": 500.0},
-
-                {"Item": "Sulfate (SO4)", "Make-up": mu_dict['SO4 (ppm)'], "Cooling (Pred)": pred_so4, "Limit (Max)": 1200.0},
-
-                {"Item": "Silica (SiO2)", "Make-up": mu_dict['SiO2 (ppm)'], "Cooling (Pred)": pred_sio2, "Limit (Max)": 150.0},
-
-                {"Item": "Conductivity", "Make-up": mu_dict['Cond (µS)'], "Cooling (Pred)": pred_cond, "Limit (Max)": 5000.0},
-
+                {"Item": "pH", "Make-up": res['mu_dict']['pH'], "Cooling (Pred)": res['target_ph'], "Limit (Max)": limits["pH"]},
+                {"Item": "Calcium (Ca-H)", "Make-up": res['mu_dict']['Ca-H (ppm)'], "Cooling (Pred)": res['pred_ca'], "Limit (Max)": limits["Calcium (Ca-H)"]},
+                {"Item": "Magnesium (Mg-H)", "Make-up": res['mu_dict']['Mg-H (ppm)'], "Cooling (Pred)": res['pred_mg'], "Limit (Max)": limits["Magnesium (Mg-H)"]},
+                {"Item": "M-Alkalinity", "Make-up": res['mu_dict']['M-Alk (ppm)'], "Cooling (Pred)": res['pred_alk'], "Limit (Max)": limits["M-Alkalinity"]},
+                {"Item": "Chloride (Cl)", "Make-up": res['mu_dict']['Cl (ppm)'], "Cooling (Pred)": res['pred_cl'], "Limit (Max)": limits["Chloride (Cl)"]},
+                {"Item": "Sulfate (SO4)", "Make-up": res['mu_dict']['SO4 (ppm)'], "Cooling (Pred)": res['pred_so4'], "Limit (Max)": limits["Sulfate (SO4)"]},
+                {"Item": "Silica (SiO2)", "Make-up": res['mu_dict']['SiO2 (ppm)'], "Cooling (Pred)": res['pred_sio2'], "Limit (Max)": limits["Silica (SiO2)"]},
+                {"Item": "Conductivity", "Make-up": res['mu_dict']['Cond (µS)'], "Cooling (Pred)": res['pred_cond'], "Limit (Max)": limits["Conductivity"]},
             ]
-
             
-
             df_comp = pd.DataFrame(comp_data)
-
             
-
-            st.caption("※ 'Limit (Max)' 컬럼의 숫자를 클릭하여 현장 기준에 맞게 수정하십시오.")
-
+            st.caption("※ **Limit**에 '8.5~9.0' 같이 입력하면 메모로, '800' 처럼 입력하면 상한값 경고로 작동합니다.")
+            
+            # [디자인 보정] width="medium" 추가하여 왼쪽 쏠림 완화
             edited_comp = st.data_editor(
-
                 df_comp, 
-
                 column_config={
-
                     "Item": st.column_config.TextColumn("항목", disabled=True),
-
-                    "Make-up": st.column_config.NumberColumn("보충수 (원수)", format="%.1f", disabled=True),
-
+                    "Make-up": st.column_config.NumberColumn("보충수", format="%.1f", disabled=True),
                     "Cooling (Pred)": st.column_config.NumberColumn("순환수 (예측)", format="%.1f", disabled=True),
-
-                    "Limit (Max)": st.column_config.NumberColumn("관리 기준 (Edit)", format="%.0f", min_value=0, max_value=10000)
-
+                    # [여기] width 옵션 추가
+                    "Limit (Max)": st.column_config.TextColumn("관리 기준 (자유입력)", width="medium", help="범위(~) 또는 상한값 입력")
                 },
-
-                hide_index=True, use_container_width=True, key="limit_editor"
-
+                hide_index=True, use_container_width=True, key="limit_editor_simple"
             )
-
             
-
-            warnings = []
-
+            # 수정된 Limit 값 저장
             for index, row in edited_comp.iterrows():
+                st.session_state.cooling_limits[row['Item']] = str(row['Limit (Max)'])
 
-                if row['Cooling (Pred)'] > row['Limit (Max)']:
-
-                    warnings.append(f"⚠️ **{row['Item']}** 농도({row['Cooling (Pred)']})가 관리 기준({row['Limit (Max)']})을 초과했습니다.")
-
+            # 경고 로직 (숫자 변환 가능할 때만 체크)
+            warnings = []
+            for index, row in edited_comp.iterrows():
+                try:
+                    limit_val = float(row['Limit (Max)']) 
+                    if row['Cooling (Pred)'] > limit_val: 
+                        warnings.append(f"⚠️ **{row['Item']}** 기준 초과 ({row['Cooling (Pred)']:.1f} > {limit_val:.0f})")
+                except ValueError:
+                    pass
             
-
             if warnings:
-
                 with st.container(border=True):
-
-                    st.error("🚨 **관리 기준 초과 경보 (Limit Violation)**")
-
+                    st.error("🚨 **관리 기준 초과 경보**")
                     for w in warnings: st.write(w)
-
-                    st.write("👉 **Action:** 농축배수(Cycles)를 낮추거나, 전용 약품 처리를 강화하십시오.")
-
             else:
+                st.success("✅ **Stable Operation** (특이사항 없음)")
 
-                st.success("✅ 모든 항목이 관리 기준 이내입니다. (Stable Operation)")
-
-
-
-            st.markdown("#### 🧭 5대 핵심 지수 진단 (Indices Diagnosis)")
-
+            # 지수 진단
+            st.markdown("#### 🧭 5대 핵심 지수 진단")
             m1, m2, m3, m4, m5 = st.columns(5)
-
             
-
+            lsi = res['lsi']
             lsi_col = "inverse" if lsi > 1.5 or lsi < 0 else "normal"
-
             m1.metric("1. LSI (Scale)", f"{lsi:.2f}", "Risk" if lsi>1.5 else "Safe", delta_color=lsi_col)
-
             
-
+            rsi = res['rsi']
             rsi_state = "Stable"
-
             if rsi < 5.0: rsi_state = "Scale Risk"
-
             elif rsi > 8.5: rsi_state = "Corr Risk"
-
             m2.metric("2. RSI (General)", f"{rsi:.2f}", rsi_state, delta_color="inverse" if "Risk" in rsi_state else "normal")
-
             
-
-            m3.metric("3. PSI (Stability)", f"{psi:.2f}")
-
+            m3.metric("3. PSI (Stability)", f"{res['psi']:.2f}")
             
-
+            ls_idx = res['ls_idx']
             ls_msg = "Safe"
-
             ls_col = "normal"
-
             if ls_idx > 1.2: ls_msg="Pitting!"; ls_col="inverse"
-
             m4.metric("4. Pitting (L-S)", f"{ls_idx:.2f}", ls_msg, delta_color=ls_col)
-
             
-
+            sim_turbidity = res['sim_turbidity']
             dep_msg = "Clean"
-
             dep_col = "normal"
-
             if sim_turbidity > 20: dep_msg="Deposit!"; dep_col="inverse"
-
             m5.metric("5. Deposit Risk", f"{sim_turbidity} NTU", dep_msg, delta_color=dep_col)
 
-
-
             st.divider()
-
-            with st.expander("📘 지수별 상세 해석 및 가이드 (Click to Open)", expanded=True):
-
+            with st.expander("📘 지수별 상세 해석 (Click)", expanded=True):
                 col_guide1, col_guide2 = st.columns(2)
-
                 with col_guide1:
-
                     st.markdown("### 🔍 현재 수질 정밀 분석")
-
                     if lsi > 2.0:
-
                         st.error(f"**1. LSI ({lsi:.2f}) - 심각한 스케일:** 탄산칼슘이 배관에 두껍게 쌓일 위험이 높습니다. 산 주입 필수.")
-
                     elif lsi > 0.5:
-
                         st.warning(f"**1. LSI ({lsi:.2f}) - 스케일 경향:** 약한 스케일 생성 조건입니다. 방지제로 제어 가능합니다.")
-
                     elif lsi < -0.5:
-
                         st.warning(f"**1. LSI ({lsi:.2f}) - 부식 경향:** 물이 배관을 녹일 수 있습니다 (Corrosive).")
-
                     else:
-
                         st.success(f"**1. LSI ({lsi:.2f}) - 안정:** 스케일과 부식 균형이 잘 맞습니다.")
 
-
-
                     if rsi < 5.0:
-
                         st.error(f"**2. RSI ({rsi:.2f}) - 강한 스케일:** 5.0 미만은 열교환기 막힘의 주원인입니다.")
-
                     elif rsi > 7.5:
-
                         st.warning(f"**2. RSI ({rsi:.2f}) - 부식성:** 탄소강 배관 부식 주의. 방식제 농도를 높이십시오.")
-
                     else:
-
                         st.success(f"**2. RSI ({rsi:.2f}) - 안정 범위:** (6.0 ± 1.0) 범위를 만족합니다.")
 
-
-
                     if ls_idx > 1.2:
-
                         st.error(f"**4. Pitting ({ls_idx:.2f}) - 국부 부식 위험:** 염소/황산 이온 비율이 높습니다. 배관에 구멍(Pitting)이 뚫릴 수 있습니다.")
-
                     elif ls_idx > 0.8:
-
                         st.warning(f"**4. Pitting ({ls_idx:.2f}) - 주의:** 점부식 발생 가능성이 증가하고 있습니다.")
-
                     else:
-
                         st.success(f"**4. Pitting ({ls_idx:.2f}) - 안전:** 부식 촉진 이온 농도가 적절합니다.")
 
-
-
                 with col_guide2:
-
                     st.markdown("### 📖 지수별 관리 기준 (Reference)")
-
                     st.info("""
-
                     * **LSI (Langelier Saturation Index):** 이론적 탄산칼슘 포화도
-
                         * `> 2.0`: 심각한 스케일 / `0 ~ 1.0`: 관리 범위 / `< -1.0`: 심각한 부식
-
                     * **RSI (Ryznar Stability Index):** 실제 현장 경험 지수 (가장 중요)
-
                         * `< 5.0`: 스케일 위험 / `6.0`: 이상적 / `> 7.5`: 부식 위험
-
                     * **PSI (Puckorius Scaling Index):** 고 pH 운전 시 완충 능력 고려
-
                         * RSI와 유사하게 해석 (< 6.0 스케일, > 7.0 부식)
-
                     * **L-S Index (Larson-Skold):** 국부 부식(Pitting) 예측 지수
-
                         * `(Cl + SO4) / Alkalinity` 비율
-
                         * `< 0.8`: 안전 / `> 1.2`: 스테인리스/탄소강 점부식 위험
-
                     * **Turbidity (Deposit):** 부유물질 침적 위험
-
                         * `> 20 NTU`: 슬러지 침적 우려 (분산제 필요)
-
-                    """) 
-
- 
+                    """)
 # ======================================================================
     # Tab 3: Chemical Program (지능형 선정 및 소요량 계산 - 오류 수정본)
     # ======================================================================
