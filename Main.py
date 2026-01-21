@@ -1,4 +1,3 @@
-
 import streamlit as st
 
 import pandas as pd
@@ -20,10 +19,29 @@ import numpy as np
 # --- 1. 기본 설정 ---
 
 st.set_page_config(
-    layout="wide",
-    page_title="Water Master Pro",  # (선택) 제목도 깔끔하게 줄이면 좋습니다
-    page_icon="logo.png"            # ✅ 핵심! 여기에 파일명을 넣어야 아이콘이 됩니다.
+    page_title="Water Master Pro",
+    page_icon="logo.png",  # 
+    layout="wide"
 )
+
+# --- [여기서부터 복사하세요] 비밀번호 보안 장치 ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+# 로그인이 안 된 상태면 로그인 화면만 보여줌
+if not st.session_state.authenticated:
+    st.markdown("### 🔒 관계자 외 출입금지")
+    password_input = st.text_input("접속 비밀번호를 입력하세요:", type="password")
+    
+    if st.button("로그인"):
+        # 👇 [수정 가능] 원하는 비밀번호로 바꾸세요 (예: parker2024)
+        if password_input == "1234":  
+            st.session_state.authenticated = True
+            st.rerun()  # 화면을 새로고침해서 앱을 보여줌
+        else:
+            st.error("❌ 비밀번호가 틀렸습니다. 다시 시도하세요.")
+            
+    st.stop()  # ⛔ 비밀번호를 맞추기 전까지는 아래 코드를 절대 실행하지 않음!
 
 
 # [스타일] CSS 스타일 정의 (표 겹침 오류 해결 Ver)
