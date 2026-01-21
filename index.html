@@ -7,12 +7,11 @@
     <meta property="og:title" content="Water Master Pro">
     <meta property="og:description" content="Cooling / Boiler / RO 수처리 전문가 시스템 (Authorized by Parker)">
     
-    <meta property="og:image" content="https://raw.githubusercontent.com/drewkorea-cloud/drewkorea-cloud/main/logo.png">
+    <meta property="og:image" content="https://raw.githubusercontent.com/drewkorea-cloud/hoimyung-app/main/logo.png">
     
     <title>Water Master Pro 접속 중...</title>
     
     <style>
-        /* 접속 대기 화면 디자인 (깔끔하게) */
         body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; flex-direction: column; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -26,9 +25,9 @@
     <p>시스템에 접속 중입니다...</p>
 
     <script>
-        // 0.1초 뒤에 Streamlit 주소로 이동
+        // 👇 [수정 2] 여기가 핵심! Streamlit 진짜 앱 주소로 바꿔야 합니다.
         setTimeout(function(){
-            window.location.href = "https://github.com/drewkorea-cloud/hoimyung-app/blob/main/logo.png";
+            window.location.href = "https://hoimyung-app-isdxdxjdtbslhpxvznfnmx.streamlit.app/";
         }, 100);
     </script>
 </body>
