@@ -14,34 +14,79 @@ import plotly.express as px
 
 import numpy as np
 
-
-# ------------------------------------------------------------------------------
-# [1단계 적용] 엑셀 데이터 자동 연동 (기존 하드코딩 대체)
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# [통합 데이터 로더] 엑셀을 한 번만 읽어서 모든 곳에 공급 (최적화 Ver)
+# ==============================================================================
 @st.cache_data
-def load_and_convert_data():
-    try:
-        # 엑셀 파일 읽기
-        df = pd.read_excel("chemical_db.xlsx")
-        df = df.fillna("-") # 빈 칸 처리
-        
-        # 프로그램용 딕셔너리로 변환 (계산 모듈용)
-        catalog = {}
-        for sys in df['System'].unique():
-            if sys not in catalog: catalog[sys] = {}
-            sys_df = df[df['System'] == sys]
-            for p_type in sys_df['Type'].unique():
-                items = sys_df[sys_df['Type'] == p_type].to_dict('records')
-                catalog[sys][p_type] = items
-                
-        return catalog, df 
+def load_data_master():
+    excel_file = 'chemical_db.xlsx'
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir, excel_file)
+    
+    # 1. 빈 데이터 구조 초기화
+    catalog = {
+        'Cooling': { 'Main_Inhibitor': [], 'Biocide': [], 'Dispersant': [] },
+        'Boiler':  { 'Oxygen_Scavenger': [], 'Scale_Disp': [], 'Condensate': [] },
+        'RO':      { 'Antiscalant': [], 'CIP_Acid': [], 'CIP_Alk': [] }
+    }
+    df_raw = pd.DataFrame()
 
-    except Exception as e:
-        st.error(f"🚨 데이터 로드 오류: {e}")
-        return {}, pd.DataFrame()
+    # 2. 엑셀 파일 읽기
+    if os.path.exists(file_path):
+        try:
+            df_raw = pd.read_excel(file_path)
+            df_raw = df_raw.fillna("-") # 빈 칸 처리
+            
+            # 컬럼명 공백 제거 (오류 방지)
+            df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-# 프로그램 시작 시 데이터 로드
-PRODUCT_CATALOG, df_master = load_and_convert_data()
+            # 3. 카탈로그 데이터 매핑 (스마트 분류)
+            for _, row in df_raw.iterrows():
+                sys = str(row.get('System', '')).strip()
+                raw_type = str(row.get('Type', '')).strip()
+                p_type = raw_type # 기본값
+
+                # [자동 분류 로직]
+                if sys == 'Cooling':
+                    if raw_type in ['Inhibitor', 'Corrosion Inhibitor', 'Main_Inhibitor']: p_type = 'Main_Inhibitor'
+                    elif raw_type in ['Biocides', 'Biocide']: p_type = 'Biocide'
+                    elif raw_type in ['Dispersant']: p_type = 'Dispersant'
+                elif sys == 'Boiler':
+                    if 'Oxygen' in raw_type: p_type = 'Oxygen_Scavenger'
+                    elif any(x in raw_type for x in ['Scale', 'Sludge', 'Inhibitor']): p_type = 'Scale_Disp'
+                    elif 'Amine' in raw_type or 'Condensate' in raw_type: p_type = 'Condensate'
+                elif sys == 'RO':
+                    if 'Scale' in raw_type or 'Antiscalant' in raw_type: p_type = 'Antiscalant'
+                    elif 'Acid' in raw_type: p_type = 'CIP_Acid'
+                    elif 'Alk' in raw_type: p_type = 'CIP_Alk'
+
+                # 4. 데이터 담기 (Field Tip 등 신규 항목 포함)
+                if sys in catalog and p_type in catalog[sys]:
+                    target_raw = row.get('Target', '')
+                    target_list = [t.strip() for t in str(target_raw).split(',')] if target_raw != '-' else []
+                    
+                    try: dose = float(row.get('Dosage', 0))
+                    except: dose = 0.0
+
+                    item = {
+                        'Name': str(row.get('Name', 'Unknown')),
+                        'Type': p_type,
+                        'Desc': str(row.get('Desc', '-')),
+                        'Dosage': dose,
+                        'Target': target_list,
+                        'Main_Ingredient': str(row.get('Main_Ingredient', '-')),
+                        'Sales_Point': str(row.get('Sales_Point', '-')),
+                        'Field_Tip': str(row.get('Field_Tip', '-'))
+                    }
+                    catalog[sys][p_type].append(item)
+                    
+        except Exception as e:
+            st.error(f"🚨 데이터 로드 중 오류 발생: {e}")
+            
+    return catalog, df_raw
+
+# [중요] 프로그램 시작 시 1번만 실행해서 전역 변수에 담습니다.
+PRODUCT_CATALOG, df_master = load_data_master()
 # --- 1. 기본 설정 ---
 
 st.set_page_config(
@@ -161,123 +206,6 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
-
-# ==============================================================================
-# [Helper] 엑셀 카탈로그 로더 (성분/특징/팁 연동 수정 완료)
-# ==============================================================================
-def load_product_catalog_from_excel():
-    excel_file = 'chemical_db.xlsx'
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_dir, excel_file)
-
-    # 1. 카탈로그 구조 초기화
-    catalog = {
-        'Cooling': { 'Main_Inhibitor': [], 'Biocide': [], 'Dispersant': [] },
-        'Boiler':  { 
-            'Oxygen_Scavenger': [], 
-            'Scale_Disp': [],  
-            'Condensate': [] 
-        },
-        'RO':      { 
-            'Antiscalant': [], 
-            'CIP_Acid': [], 
-            'CIP_Alk': [] 
-        }
-    }
-
-    # 2. 비상용 기본 데이터 (Fallback Data) - 엑셀 없을 때 사용
-    fallback_data = {
-        'Cooling': {
-            'Main_Inhibitor': [{'Name': 'Cool-100', 'Type': 'Main_Inhibitor', 'Desc': 'Standard', 'Feature': 'Standard', 'Dosage': 50, 'Target': ['Corrosion']}],
-            'Biocide': [{'Name': 'Bio-Kill', 'Type': 'Biocide', 'Desc': 'Oxidizing', 'Feature': 'Oxidizing', 'Dosage': 10, 'Target': ['Bacteria']}],
-            'Dispersant': [{'Name': 'Disp-200', 'Type': 'Dispersant', 'Desc': 'Polymer', 'Feature': 'Polymer', 'Dosage': 20, 'Target': ['Scale']}]
-        },
-        'Boiler': {
-            'Oxygen_Scavenger': [{'Name': 'Oxy-Zero', 'Type': 'Oxygen_Scavenger', 'Desc': 'Sulfite', 'Feature': 'Sulfite', 'Dosage': 30, 'Target': ['Oxygen']}],
-            'Scale_Disp': [{'Name': 'Scale-X', 'Type': 'Scale_Disp', 'Desc': 'Polymer', 'Feature': 'Polymer', 'Dosage': 40, 'Target': ['Scale']}],
-            'Condensate': [{'Name': 'Steam-Save', 'Type': 'Condensate', 'Desc': 'Amine', 'Feature': 'Amine', 'Dosage': 15, 'Target': ['pH']}]
-        },
-        'RO': {
-            'Antiscalant': [{'Name': 'RO-ScaleStop', 'Type': 'Antiscalant', 'Desc': 'General', 'Feature': 'General', 'Dosage': 3.0, 'Target': ['CaCO3']}],
-            'CIP_Acid': [{'Name': 'RO-Acid Clean', 'Type': 'CIP_Acid', 'Desc': 'pH 2.0', 'Feature': 'pH 2.0', 'Dosage': 2.0, 'Target': ['Scale']}],
-            'CIP_Alk': [{'Name': 'RO-Alk Clean', 'Type': 'CIP_Alk', 'Desc': 'pH 12.0', 'Feature': 'pH 12.0', 'Dosage': 2.0, 'Target': ['Bio']}]
-        }
-    }
-
-    # 3. 엑셀 파일 읽기 및 스마트 매핑
-    if os.path.exists(file_path):
-        try:
-            df = pd.read_excel(file_path, engine='openpyxl')
-            # 컬럼명 공백 제거
-            df.columns = [str(c).strip() for c in df.columns]
-
-            for _, row in df.iterrows():
-                sys = str(row.get('System', '')).strip()
-                raw_type = str(row.get('Type', '')).strip()
-                
-                # [스마트 매핑] 엑셀의 다양한 표현을 프로그램 표준 Key로 자동 변환
-                p_type = raw_type 
-
-                # (1) Cooling 매핑
-                if sys == 'Cooling':
-                    if raw_type in ['Inhibitor', 'Corrosion Inhibitor', 'Scale/Corrosion']: p_type = 'Main_Inhibitor'
-                    elif raw_type in ['Biocides', 'Biocide']: p_type = 'Biocide'
-                
-                # (2) Boiler 매핑 (Scale_Disp로 통일)
-                elif sys == 'Boiler':
-                    if 'Oxygen' in raw_type: p_type = 'Oxygen_Scavenger'
-                    elif any(x in raw_type for x in ['Scale', 'Sludge', 'Inhibitor', 'Disp']): p_type = 'Scale_Disp'
-                    elif 'Amine' in raw_type or 'Condensate' in raw_type: p_type = 'Condensate'
-
-                # (3) RO 매핑 (CIP 자동 분류)
-                elif sys == 'RO':
-                    if 'Scale' in raw_type or 'Antiscalant' in raw_type: p_type = 'Antiscalant'
-                    elif 'CIP' in raw_type or 'Acid' in raw_type or 'Alk' in raw_type:
-                        name_desc = (str(row.get('Name', '')) + str(row.get('Desc', ''))).lower()
-                        if 'acid' in raw_type or 'acid' in name_desc or '산성' in name_desc or 'low ph' in name_desc:
-                            p_type = 'CIP_Acid'
-                        elif 'alk' in raw_type or 'alk' in name_desc or '알칼리' in name_desc or 'high ph' in name_desc or 'organic' in name_desc:
-                            p_type = 'CIP_Alk'
-                        else:
-                            p_type = 'CIP_Alk'
-
-                # 카탈로그에 해당 시스템/타입이 존재할 때만 추가
-                if sys in catalog and p_type in catalog[sys]:
-                    target_raw = row.get('Target', '')
-                    target_list = [t.strip() for t in str(target_raw).split(',')] if pd.notnull(target_raw) and str(target_raw).strip() != '' else []
-                    
-                    try: dose_val = float(row.get('Dosage', 0))
-                    except: dose_val = 0.0
-
-                    # [수정됨] 엑셀의 중요 정보(성분, 특징, 팁)를 모두 가져오도록 변경
-                    item = {
-                        'Name': str(row.get('Name', 'Unknown')),
-                        'Type': p_type,
-                        'Desc': str(row.get('Desc', '')),
-                        'Dosage': dose_val,
-                        'Target': target_list,
-                        'Feature': str(row.get('Desc', '')),
-                        # 👇 여기가 추가된 부분입니다!
-                        'Main_Ingredient': str(row.get('Main_Ingredient', '-')),
-                        'Sales_Point': str(row.get('Sales_Point', '-')),
-                        'Field_Tip': str(row.get('Field_Tip', '-'))
-                    }
-                    catalog[sys][p_type].append(item)
-
-        except Exception as e:
-            st.warning(f"⚠️ 엑셀 읽기 중 일부 오류: {e} (기본 데이터를 병합합니다)")
-
-    # 4. 데이터가 빈 항목은 기본값(Fallback)으로 채움
-    for sys in fallback_data:
-        for p_type in fallback_data[sys]:
-            if not catalog[sys][p_type]: 
-                catalog[sys][p_type] = fallback_data[sys][p_type]
-
-    return catalog
-# --------------------------------------------------------
-# [여기가 중요!] 함수 밖으로 빠져나와서 변수를 선언해야 함
-# --------------------------------------------------------
-PRODUCT_CATALOG = load_product_catalog_from_excel()
 
 # ------------------------------------------------------------------------------
 # [신규 추가] L.S.I 계산 함수 (에러 방지 기능 포함)
@@ -586,11 +514,11 @@ with st.sidebar:
     program_mode = st.radio(
         "Select Module:", 
         [
-            "1. Cooling Master PRO", 
-            "2. Boiler Master PRO", 
-            "3. RO Master PRO", 
-            "4. WWT Master PRO", 
-            "5. Basic Engineering"
+            "1. Cooling Calc.", 
+            "2. Boiler Calc.", 
+            "3. RO Calc.", 
+            "4. WWT Calc.", 
+            "5. Engineering Calc."
         ], 
         key="main_menu_mode"
     )
@@ -771,51 +699,68 @@ if "Cooling" in program_mode:
                 st.caption(f"💧 **보유수량:** {holding_vol:.0f} m³")
 
   
- # ======================================================================
-    # Tab 2: Water Chemistry (범위 입력 가능 + 디자인 보정 Ver)
+# ======================================================================
+    # Tab 2: Water Chemistry (Mg 제거 / Fe, 탁도 추가 / 가이드 항시 표시 v5)
     # ======================================================================
     with tab2:
         st.subheader("2. Prediction & Diagnosis Simulator")
-        st.markdown("보충수(Make-up) 수질을 기반으로 농축 후 순환수 수질을 **예측**하고 **5대 지수**를 진단합니다.")
+        st.markdown("보충수 수질을 기반으로 순환수를 예측하고, **Skin Temperature(열교환기 표면)** 기준의 정밀 진단을 수행합니다.")
 
-        # 1. 초기 데이터 설정
-        if 'makeup_data' not in st.session_state:
-            st.session_state.makeup_data = pd.DataFrame({
-                'Item': ['pH', 'Cond (µS)', 'Ca-H (ppm)', 'Mg-H (ppm)', 'M-Alk (ppm)', 'Cl (ppm)', 'SO4 (ppm)', 'SiO2 (ppm)'],
-                'Value': [7.5, 200.0, 40.0, 10.0, 50.0, 20.0, 10.0, 10.0]
+        # 1. 초기 데이터 설정 (v5로 변경하여 화면 강제 갱신)
+        if 'makeup_data_v5' not in st.session_state:
+            st.session_state.makeup_data_v5 = pd.DataFrame({
+                'Item': ['pH', 'Cond (µS)', 'Ca-H (ppm)', 'M-Alk (ppm)', 'Cl (ppm)', 'SO4 (ppm)', 'SiO2 (ppm)', 'Fe (ppm)', 'Turbidity (NTU)'],
+                'Value': [7.5, 200.0, 40.0, 50.0, 20.0, 10.0, 10.0, 0.1, 2.0]
             })
         
-        # [관리 기준] 초기값 (반드시 따옴표로 감싸서 문자로 저장)
-        if 'cooling_limits' not in st.session_state:
-            st.session_state.cooling_limits = {
-                "pH": "8.3~9.0",        # 범위
-                "Calcium (Ca-H)": "800",# 상한값
-                "Magnesium (Mg-H)": "300",
-                "M-Alkalinity": "500",
-                "Chloride (Cl)": "500",
-                "Sulfate (SO4)": "1200",
-                "Silica (SiO2)": "150",
-                "Conductivity": "5000"
+        # [관리 기준] 초기값
+        if 'cooling_limits_v5' not in st.session_state:
+            st.session_state.cooling_limits_v5 = {
+                "pH": "8.3~9.0", "Calcium (Ca-H)": "800", 
+                "M-Alkalinity": "500", "Chloride (Cl)": "500", "Sulfate (SO4)": "1200",
+                "Silica (SiO2)": "150", "Conductivity": "5000",
+                "Iron (Fe)": "1.0", "Turbidity (NTU)": "20"
             }
             
         # 결과 저장소
-        if 'sim_results' not in st.session_state:
-            st.session_state.sim_results = {}
-        if 'run_simulation' not in st.session_state:
-            st.session_state.run_simulation = False
+        if 'sim_results' not in st.session_state: st.session_state.sim_results = {}
+        if 'run_simulation' not in st.session_state: st.session_state.run_simulation = False
 
         col_sim1, col_sim2 = st.columns([1, 1])
         
         with col_sim1:
             st.markdown("###### ① 보충수(Make-up) 수질 입력")
-            edited_mu = st.data_editor(st.session_state.makeup_data, hide_index=True, key="mu_editor", height=280)
+            edited_mu = st.data_editor(st.session_state.makeup_data_v5, hide_index=True, key="mu_editor_v5", height=320)
         
         with col_sim2:
-            st.markdown("###### ② 운전 목표 및 관리 기준 설정")
+            st.markdown("###### ② 운전 목표 및 설비 부하 설정")
             target_coc = st.slider("Target Cycles (목표 농축배수)", 1.0, 10.0, 5.0, 0.1, key="sim_coc")
-            sim_temp = st.slider("Temperature (°C)", 10.0, 60.0, 35.0, 1.0, key="sim_temp")
-            sim_turbidity = st.number_input("예상 탁도 (NTU) - Deposit 예측용", 0.0, 100.0, 10.0)
+            sim_temp = st.slider("Water Temperature (수온, °C)", 10.0, 60.0, 35.0, 1.0, key="sim_temp")
             
+            # [Skin Temp 추정을 위한 설비 부하 선택]
+            st.markdown("---")
+            st.markdown("###### ③ 열교환기 부하 조건 (Heat Load Stress)")
+            st.info("💡 공장 내 **가장 뜨거운 설비(Bottleneck)**를 기준으로 선택하세요.")
+            
+            heat_load_type = st.radio(
+                "가장 가혹한 열교환기 타입은?",
+                ["🟢 저부하 (오일쿨러/공조기)", "🟡 표준 (화학/사출/반도체)", "🔴 고부하 (제철/발전/응축기)"],
+                index=1,
+                horizontal=True
+            )
+
+            # [Skin Temp 자동 계산 로직]
+            if "고부하" in heat_load_type:
+                skin_offset = 25.0
+                st.caption(f"🔥 **Skin Temp 보정: +25℃** (예상 표면온도: {sim_temp + 25}℃)")
+            elif "표준" in heat_load_type:
+                skin_offset = 15.0
+                st.caption(f"⚙️ **Skin Temp 보정: +15℃** (예상 표면온도: {sim_temp + 15}℃)")
+            else:
+                skin_offset = 5.0
+                st.caption(f"❄️ **Skin Temp 보정: +5℃** (예상 표면온도: {sim_temp + 5}℃)")
+
+            st.markdown("---")
             use_acid = st.checkbox("Acid Feed (황산 주입 모드)", value=False)
 
             if use_acid:
@@ -825,8 +770,7 @@ if "Cooling" in program_mode:
                 try:
                     temp_mu = dict(zip(edited_mu['Item'], edited_mu['Value'])) 
                     base_alk = temp_mu.get('M-Alk (ppm)', 50.0)
-                except:
-                    base_alk = 50.0
+                except: base_alk = 50.0
 
                 cycle_alk = base_alk * target_coc
                 if cycle_alk < 1: cycle_alk = 1.0
@@ -841,23 +785,21 @@ if "Cooling" in program_mode:
 
                 est_ph = min(est_ph_raw, 9.3)
                 target_ph = st.number_input(f"Predicted pH ({phase_msg})", value=float(f"{est_ph:.2f}"), disabled=True)
-                
-                if est_ph >= 8.3:
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **탄산(CO3) 완충 구간** 진입")
-                else:
-                    st.caption(f"💡 **분석:** 농축 알칼리도 {int(cycle_alk)}ppm → **중탄산(HCO3) 지배 구간**")
             
             # [버튼] 실행
             if st.button("🚀 Run Simulation (비교 분석)", type="primary", use_container_width=True):
-                st.session_state.makeup_data = edited_mu 
+                st.session_state.makeup_data_v5 = edited_mu 
                 mu_dict = dict(zip(edited_mu['Item'], edited_mu['Value']))
                 
-                # 예측 계산
+                # 예측 계산 (Mg 삭제 / Fe, Turbidity 추가)
                 pred_ca = mu_dict['Ca-H (ppm)'] * target_coc
-                pred_mg = mu_dict['Mg-H (ppm)'] * target_coc
                 pred_cl = mu_dict['Cl (ppm)'] * target_coc
                 pred_sio2 = mu_dict['SiO2 (ppm)'] * target_coc
                 pred_cond = mu_dict['Cond (µS)'] * target_coc
+                
+                # 신규 항목 계산
+                pred_fe = mu_dict.get('Fe (ppm)', 0.1) * target_coc
+                pred_turb = mu_dict.get('Turbidity (NTU)', 1.0) * target_coc
                 
                 if use_acid:
                     pred_alk = mu_dict['M-Alk (ppm)'] * target_coc * 0.6
@@ -878,7 +820,10 @@ if "Cooling" in program_mode:
                 
                 pHs = (9.3 + val_a + val_b) - (val_c + val_d)
                 
-                lsi = calculate_lsi(target_ph, pred_cond * 0.7, pred_ca, pred_alk, sim_temp)
+                # LSI를 Bulk(물 온도)와 Skin(표면 온도) 2가지로 계산
+                lsi_bulk = calculate_lsi(target_ph, pred_cond * 0.7, pred_ca, pred_alk, sim_temp)
+                lsi_skin = calculate_lsi(target_ph, pred_cond * 0.7, pred_ca, pred_alk, sim_temp + skin_offset)
+                
                 rsi = (2 * pHs) - target_ph
                 p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
                 psi = (2 * pHs) - p_eq
@@ -887,67 +832,63 @@ if "Cooling" in program_mode:
                 # 결과 저장
                 st.session_state.sim_results = {
                     'mu_dict': mu_dict,
-                    'pred_ca': pred_ca, 'pred_mg': pred_mg, 'pred_alk': pred_alk,
+                    'pred_ca': pred_ca, 'pred_alk': pred_alk,
                     'pred_cl': pred_cl, 'pred_so4': pred_so4, 'pred_sio2': pred_sio2,
+                    'pred_fe': pred_fe, 'pred_turb': pred_turb,
                     'pred_cond': pred_cond, 'target_ph': target_ph,
-                    'lsi': lsi, 'rsi': rsi, 'psi': psi, 'ls_idx': ls_idx,
-                    'sim_turbidity': sim_turbidity, 'target_coc': target_coc
+                    'lsi': lsi_bulk, 'lsi_skin': lsi_skin, 'rsi': rsi, 'psi': psi, 'ls_idx': ls_idx,
+                    'target_coc': target_coc, 'skin_offset': skin_offset
                 }
-                st.session_state['sim_lsi'] = lsi
+                st.session_state['sim_lsi'] = lsi_bulk
                 st.session_state['sim_target_ph'] = target_ph
                 st.session_state.run_simulation = True
 
         # ----------------------------------------------------------------------
-        # [결과 화면]
+        # [결과 화면] - 시뮬레이션 버튼을 누르면 나타남
         # ----------------------------------------------------------------------
         if st.session_state.run_simulation:
             res = st.session_state.sim_results
-            limits = st.session_state.cooling_limits
+            limits = st.session_state.cooling_limits_v5
 
             st.divider()
             st.subheader(f"📊 수질 예측 비교 분석 (농축배수: {res['target_coc']}배)")
             
+            # 테이블 데이터 구성
             comp_data = [
                 {"Item": "pH", "Make-up": res['mu_dict']['pH'], "Cooling (Pred)": res['target_ph'], "Limit (Max)": limits["pH"]},
+                {"Item": "Conductivity", "Make-up": res['mu_dict']['Cond (µS)'], "Cooling (Pred)": res['pred_cond'], "Limit (Max)": limits["Conductivity"]},
                 {"Item": "Calcium (Ca-H)", "Make-up": res['mu_dict']['Ca-H (ppm)'], "Cooling (Pred)": res['pred_ca'], "Limit (Max)": limits["Calcium (Ca-H)"]},
-                {"Item": "Magnesium (Mg-H)", "Make-up": res['mu_dict']['Mg-H (ppm)'], "Cooling (Pred)": res['pred_mg'], "Limit (Max)": limits["Magnesium (Mg-H)"]},
                 {"Item": "M-Alkalinity", "Make-up": res['mu_dict']['M-Alk (ppm)'], "Cooling (Pred)": res['pred_alk'], "Limit (Max)": limits["M-Alkalinity"]},
                 {"Item": "Chloride (Cl)", "Make-up": res['mu_dict']['Cl (ppm)'], "Cooling (Pred)": res['pred_cl'], "Limit (Max)": limits["Chloride (Cl)"]},
                 {"Item": "Sulfate (SO4)", "Make-up": res['mu_dict']['SO4 (ppm)'], "Cooling (Pred)": res['pred_so4'], "Limit (Max)": limits["Sulfate (SO4)"]},
                 {"Item": "Silica (SiO2)", "Make-up": res['mu_dict']['SiO2 (ppm)'], "Cooling (Pred)": res['pred_sio2'], "Limit (Max)": limits["Silica (SiO2)"]},
-                {"Item": "Conductivity", "Make-up": res['mu_dict']['Cond (µS)'], "Cooling (Pred)": res['pred_cond'], "Limit (Max)": limits["Conductivity"]},
+                {"Item": "Iron (Fe)", "Make-up": res['mu_dict'].get('Fe (ppm)', 0), "Cooling (Pred)": res['pred_fe'], "Limit (Max)": limits.get("Iron (Fe)", "1.0")},
+                {"Item": "Turbidity (NTU)", "Make-up": res['mu_dict'].get('Turbidity (NTU)', 0), "Cooling (Pred)": res['pred_turb'], "Limit (Max)": limits.get("Turbidity (NTU)", "20")},
             ]
             
             df_comp = pd.DataFrame(comp_data)
             
-            st.caption("※ **Limit**에 '8.5~9.0' 같이 입력하면 메모로, '800' 처럼 입력하면 상한값 경고로 작동합니다.")
-            
-            # [디자인 보정] width="medium" 추가하여 왼쪽 쏠림 완화
             edited_comp = st.data_editor(
                 df_comp, 
                 column_config={
                     "Item": st.column_config.TextColumn("항목", disabled=True),
                     "Make-up": st.column_config.NumberColumn("보충수", format="%.1f", disabled=True),
                     "Cooling (Pred)": st.column_config.NumberColumn("순환수 (예측)", format="%.1f", disabled=True),
-                    # [여기] width 옵션 추가
                     "Limit (Max)": st.column_config.TextColumn("관리 기준 (자유입력)", width="medium", help="범위(~) 또는 상한값 입력")
                 },
-                hide_index=True, use_container_width=True, key="limit_editor_simple"
+                hide_index=True, use_container_width=True, key="limit_editor_simple_v5"
             )
             
-            # 수정된 Limit 값 저장
             for index, row in edited_comp.iterrows():
-                st.session_state.cooling_limits[row['Item']] = str(row['Limit (Max)'])
+                st.session_state.cooling_limits_v5[row['Item']] = str(row['Limit (Max)'])
 
-            # 경고 로직 (숫자 변환 가능할 때만 체크)
             warnings = []
             for index, row in edited_comp.iterrows():
                 try:
                     limit_val = float(row['Limit (Max)']) 
                     if row['Cooling (Pred)'] > limit_val: 
                         warnings.append(f"⚠️ **{row['Item']}** 기준 초과 ({row['Cooling (Pred)']:.1f} > {limit_val:.0f})")
-                except ValueError:
-                    pass
+                except ValueError: pass
             
             if warnings:
                 with st.container(border=True):
@@ -956,78 +897,94 @@ if "Cooling" in program_mode:
             else:
                 st.success("✅ **Stable Operation** (특이사항 없음)")
 
-            # 지수 진단
-            st.markdown("#### 🧭 5대 핵심 지수 진단")
+            # [5대 지수 진단]
+            st.markdown("#### 🧭 5대 핵심 지수 진단 (Skin Temp 반영)")
             m1, m2, m3, m4, m5 = st.columns(5)
             
+            # 1. Bulk LSI
             lsi = res['lsi']
             lsi_col = "inverse" if lsi > 1.5 or lsi < 0 else "normal"
-            m1.metric("1. LSI (Scale)", f"{lsi:.2f}", "Risk" if lsi>1.5 else "Safe", delta_color=lsi_col)
+            m1.metric("1. LSI (Bulk)", f"{lsi:.2f}", "물 온도 기준", delta_color=lsi_col)
             
+            # 2. Skin LSI
+            lsi_skin = res['lsi_skin']
+            skin_msg = "Safe"
+            skin_col = "normal"
+            if lsi_skin > 2.5:
+                skin_msg = "Critical!"
+                skin_col = "inverse"
+            elif lsi_skin > 2.0:
+                skin_msg = "Warning"
+                skin_col = "inverse"
+            m2.metric("2. LSI (Skin)", f"{lsi_skin:.2f}", skin_msg, delta_color=skin_col,
+                      help=f"가장 뜨거운 열교환기 표면 온도 기준 (수온+{res['skin_offset']:.0f}℃)")
+            
+            # 3. RSI
             rsi = res['rsi']
             rsi_state = "Stable"
             if rsi < 5.0: rsi_state = "Scale Risk"
             elif rsi > 8.5: rsi_state = "Corr Risk"
-            m2.metric("2. RSI (General)", f"{rsi:.2f}", rsi_state, delta_color="inverse" if "Risk" in rsi_state else "normal")
+            m3.metric("3. RSI (General)", f"{rsi:.2f}", rsi_state, delta_color="inverse" if "Risk" in rsi_state else "normal")
             
-            m3.metric("3. PSI (Stability)", f"{res['psi']:.2f}")
-            
+            # 4. Pitting (L-S Index)
             ls_idx = res['ls_idx']
             ls_msg = "Safe"
             ls_col = "normal"
             if ls_idx > 1.2: ls_msg="Pitting!"; ls_col="inverse"
             m4.metric("4. Pitting (L-S)", f"{ls_idx:.2f}", ls_msg, delta_color=ls_col)
             
-            sim_turbidity = res['sim_turbidity']
+            # 5. Turbidity
+            pred_turb = res['pred_turb']
             dep_msg = "Clean"
             dep_col = "normal"
-            if sim_turbidity > 20: dep_msg="Deposit!"; dep_col="inverse"
-            m5.metric("5. Deposit Risk", f"{sim_turbidity} NTU", dep_msg, delta_color=dep_col)
+            if pred_turb > 20: dep_msg="Deposit!"; dep_col="inverse"
+            m5.metric("5. Turbidity", f"{pred_turb:.1f} NTU", dep_msg, delta_color=dep_col)
 
-            st.divider()
-            with st.expander("📘 지수별 상세 해석 (Click)", expanded=True):
-                col_guide1, col_guide2 = st.columns(2)
-                with col_guide1:
-                    st.markdown("### 🔍 현재 수질 정밀 분석")
-                    if lsi > 2.0:
-                        st.error(f"**1. LSI ({lsi:.2f}) - 심각한 스케일:** 탄산칼슘이 배관에 두껍게 쌓일 위험이 높습니다. 산 주입 필수.")
-                    elif lsi > 0.5:
-                        st.warning(f"**1. LSI ({lsi:.2f}) - 스케일 경향:** 약한 스케일 생성 조건입니다. 방지제로 제어 가능합니다.")
-                    elif lsi < -0.5:
-                        st.warning(f"**1. LSI ({lsi:.2f}) - 부식 경향:** 물이 배관을 녹일 수 있습니다 (Corrosive).")
-                    else:
-                        st.success(f"**1. LSI ({lsi:.2f}) - 안정:** 스케일과 부식 균형이 잘 맞습니다.")
+        # ----------------------------------------------------------------------
+        # [가이드 섹션] - 시뮬레이션 여부와 상관없이 '항상' 맨 아래에 표시됨
+        # ----------------------------------------------------------------------
+        st.divider()
+        with st.expander("📘 지수별 상세 관리 기준 (Reference - 항상 표시)", expanded=True):
+            st.markdown("### 1. LSI (Langelier Saturation Index)")
+            st.markdown("""
+            | 범위 (Range) | 상태 (Condition) | 현상 및 위험 | 관리 대책 (Action) |
+            | :--- | :---: | :--- | :--- |
+            | **+2.0 이상** | **심각한 스케일** | 배관 막힘, 열효율 급감 | 산(Acid) 주입, 블로우다운 증대 |
+            | **+0.5 ~ +2.0** | **약한 스케일** | **[관리 범위]** 얇은 막 형성 | 스케일 방지제(Inhibitor) 제어 |
+            | **-0.5 ~ +0.5** | **안정 (Stable)** | 이상적 상태 | 현재 상태 유지 |
+            | **-0.5 ~ -2.0** | **약한 부식** | 배관이 서서히 얇아짐 | 방식제(Zn, PO4) 농도 상향 |
+            | **-2.0 이하** | **심각한 부식** | 녹물 발생 (Red Water) | pH 상승, 부식 억제제 대량 투입 |
+            """)
+            
+            c_g1, c_g2 = st.columns(2)
+            with c_g1:
+                st.markdown("### 2. Skin LSI (표면온도 기준)")
+                st.markdown("""
+                * **< 2.0 (안전):** 열교환기 표면도 깨끗함.
+                * **2.0 ~ 2.5 (경고):** 고온부(Hot Spot) 스케일 시작.
+                * **> 2.5 (위험):** **즉각 조치 필요.** 물은 맑아도 설비는 막히고 있음.
+                """)
+                
+                st.markdown("### 3. RSI (Ryznar Stability Index)")
+                st.markdown("""
+                * **4.0 ~ 5.0:** 강한 스케일 (막힘 주의)
+                * **5.0 ~ 6.0:** **[최적]** 약한 코팅막 형성
+                * **> 8.0:** 강한 부식 (녹물 발생)
+                """)
 
-                    if rsi < 5.0:
-                        st.error(f"**2. RSI ({rsi:.2f}) - 강한 스케일:** 5.0 미만은 열교환기 막힘의 주원인입니다.")
-                    elif rsi > 7.5:
-                        st.warning(f"**2. RSI ({rsi:.2f}) - 부식성:** 탄소강 배관 부식 주의. 방식제 농도를 높이십시오.")
-                    else:
-                        st.success(f"**2. RSI ({rsi:.2f}) - 안정 범위:** (6.0 ± 1.0) 범위를 만족합니다.")
+            with c_g2:
+                st.markdown("### 4. L-S Index (부식 지수)")
+                st.markdown("""
+                * **< 0.8 (안전):** 부식 억제력 충분.
+                * **0.8 ~ 1.2 (주의):** 국부 부식(Pitting) 가능성.
+                * **> 1.2 (위험):** **점부식 경고.** 염소($Cl$) 농도를 낮춰야 함.
+                """)
 
-                    if ls_idx > 1.2:
-                        st.error(f"**4. Pitting ({ls_idx:.2f}) - 국부 부식 위험:** 염소/황산 이온 비율이 높습니다. 배관에 구멍(Pitting)이 뚫릴 수 있습니다.")
-                    elif ls_idx > 0.8:
-                        st.warning(f"**4. Pitting ({ls_idx:.2f}) - 주의:** 점부식 발생 가능성이 증가하고 있습니다.")
-                    else:
-                        st.success(f"**4. Pitting ({ls_idx:.2f}) - 안전:** 부식 촉진 이온 농도가 적절합니다.")
-
-                with col_guide2:
-                    st.markdown("### 📖 지수별 관리 기준 (Reference)")
-                    st.info("""
-                    * **LSI (Langelier Saturation Index):** 이론적 탄산칼슘 포화도
-                        * `> 2.0`: 심각한 스케일 / `0 ~ 1.0`: 관리 범위 / `< -1.0`: 심각한 부식
-                    * **RSI (Ryznar Stability Index):** 실제 현장 경험 지수 (가장 중요)
-                        * `< 5.0`: 스케일 위험 / `6.0`: 이상적 / `> 7.5`: 부식 위험
-                    * **PSI (Puckorius Scaling Index):** 고 pH 운전 시 완충 능력 고려
-                        * RSI와 유사하게 해석 (< 6.0 스케일, > 7.0 부식)
-                    * **L-S Index (Larson-Skold):** 국부 부식(Pitting) 예측 지수
-                        * `(Cl + SO4) / Alkalinity` 비율
-                        * `< 0.8`: 안전 / `> 1.2`: 스테인리스/탄소강 점부식 위험
-                    * **Turbidity (Deposit):** 부유물질 침적 위험
-                        * `> 20 NTU`: 슬러지 침적 우려 (분산제 필요)
-                    """)
-
+                st.markdown("### 5. 탁도 & 철분 (오염 지표)")
+                st.markdown("""
+                * **탁도 (Turbidity):** `> 20 NTU` 시 침적(Deposit) 부식 위험. 여과기 가동 필요.
+                * **철분 (Fe):** `> 1.0 ppm` 시 배관 부식 진행 중이거나 원수 오염 의심.
+                """)
 # ======================================================================
     # Tab 3: Chemical Program (Field Tip 추가 업그레이드)
     # ======================================================================
@@ -1260,7 +1217,7 @@ elif "Boiler" in program_mode:
         "🛠️ TSA 정밀진단"
     ])
     
-# --- Tab 1: Water Simulation & Balance (응축수 회수율 반영 Ver) ---
+# --- Tab 1: Water Simulation & Balance (P-Alk 추정 및 정밀 수질 예측) ---
     with tab_sim:
         st.subheader("1. Boiler Water Balance & Quality Prediction")
         
@@ -1293,17 +1250,15 @@ elif "Boiler" in program_mode:
 
             # --- [Global Expert 물질수지 계산] ---
             # 1. 블로우다운량 계산 (증기량 기준)
-            # Blowdown = Steam / (Cycles - 1)
             if b_coc > 1:
                 b_blowdown = b_steam / (b_coc - 1)
             else:
                 b_blowdown = 0.0
             
-            # 2. 총 급수량 (Total Feed) = 증기 + 블로우다운
+            # 2. 총 급수량 (Total Feed)
             b_feedwater = b_steam + b_blowdown
             
             # 3. 응축수량 및 보급수량 분리
-            # Feed = Makeup + Condensate
             b_condensate = b_feedwater * (b_return_pct / 100.0)
             b_makeup = b_feedwater - b_condensate
             
@@ -1319,31 +1274,46 @@ elif "Boiler" in program_mode:
             b_dose_ppm = st.number_input("청관제 목표농도 (ppm, 급수대비)", value=100.0, step=10.0, key="b_dose_ex")
             b_naoh_pct = st.number_input("청관제 내 가성소다(NaOH) 함량 (%)", value=20.0, step=1.0, key="b_naoh_ex")
 
-            # 세션 저장 (Tab 2 약품 계산용)
+            # 세션 저장
             st.session_state.b_res_store = {
                 'steam': b_steam, 'feed': b_feedwater, 'blow': b_blowdown, 
                 'coc': b_coc, 'dose_ppm': b_dose_ppm, 'naoh_pct': b_naoh_pct
             }
 
-        # [수질 예측 계산 - 혼합 수질 반영]
-        # 급수 TDS = (보급수TDS * 보급수비율) + (응축수TDS * 응축수비율)
-        # 통상 응축수 TDS는 매우 낮음 (약 2~5 ppm 가정)
+        # [수질 예측 계산 - 혼합 수질 및 P-Alk 반영]
         cond_tds_assumed = 5.0 
         mu_ratio = (100 - b_return_pct) / 100.0
         
         # 1. 혼합 급수(Mixed Feed) 수질 계산
         feed_cond = (mu_v['Cond (uS/cm)'] * mu_ratio) + (cond_tds_assumed * (b_return_pct/100.0))
-        feed_alk = mu_v['M-Alk (ppm)'] * mu_ratio
+        feed_m_alk = mu_v['M-Alk (ppm)'] * mu_ratio
         feed_cl = mu_v['Cl (ppm)'] * mu_ratio
         feed_sio2 = mu_v['SiO2 (ppm)'] * mu_ratio
-        feed_fe = mu_v['Fe (ppm)'] * mu_ratio + (0.05 * (b_return_pct/100.0)) # 응축수 철분 0.05 가정
+        feed_fe = mu_v['Fe (ppm)'] * mu_ratio + (0.05 * (b_return_pct/100.0))
+        
+        # [New] 급수 P-Alk 추정 (pH 8.3 이상일 때 M-Alk의 50% 가정)
+        feed_ph_est = mu_v['pH'] # 보급수 pH 기준 (간이)
+        feed_p_alk = feed_m_alk * 0.5 if feed_ph_est >= 8.3 else 0.0
 
         # 2. 관수(Boiler Water) 농축 계산
-        naoh_boost = b_dose_ppm * (b_naoh_pct / 100) * 1.25 # 가성소다에 의한 알칼리 상승
+        # 가성소다(NaOH)는 P-Alk와 M-Alk를 동시에 올림 (OH- 이므로)
+        naoh_boost = b_dose_ppm * (b_naoh_pct / 100) * 1.25 # ppm as CaCO3 환산
         
-        p_alk = (feed_alk * b_coc) + naoh_boost
-        p_ph = 9.3 + math.log10(max(p_alk, 1)) if p_alk > 0 else mu_v['pH']
-        p_ph = min(p_ph, 12.3) # Max Ceiling
+        p_m_alk = (feed_m_alk * b_coc) + naoh_boost
+        p_p_alk = (feed_p_alk * b_coc) + naoh_boost # 가성소다는 전량 P-Alk 기여
+        
+        # pH 예측 (M-Alk와 P-Alk 관계 이용)
+        # 2P > M 인 경우 OH가 존재 -> pH 11 이상 상승
+        if p_p_alk > 0 and p_m_alk > 0:
+            if 2 * p_p_alk > p_m_alk: # OH alkalinity exists
+                oh_alk = 2 * p_p_alk - p_m_alk
+                p_ph = 11.0 + math.log10(max(oh_alk, 1)) * 0.6 # 경험식 보정
+            else:
+                p_ph = 9.3 + math.log10(max(p_m_alk, 1)) * 0.5
+        else:
+            p_ph = mu_v['pH']
+            
+        p_ph = min(p_ph, 12.5) # Max Limit
         
         p_cond = (feed_cond * b_coc) + (naoh_boost * 5.5)
         p_cl = feed_cl * b_coc
@@ -1352,22 +1322,30 @@ elif "Boiler" in program_mode:
 
         # ASME 체크
         try:
-            _, l_cond = Boiler_Expert_Engine.check_asme_standard(b_pressure, p_cond, p_sio2, p_alk)
+            _, l_cond = Boiler_Expert_Engine.check_asme_standard(b_pressure, p_cond, p_sio2, p_m_alk)
         except:
             l_cond = 3000.0
 
         st.divider()
-        st.subheader(f"📊 보일러 관수 수질 예측 (농축 {b_coc}배, 응축수 회수 {b_return_pct}%)")
+        st.subheader(f"📊 보일러 관수 수질 예측 (농축 {b_coc}배, P-Alk 추정 적용)")
         
-        # [결과 테이블]
+        # [결과 테이블 - P-Alk 추가됨]
         p_df = pd.DataFrame({
-            '측정 항목': ['pH (예측값)', 'Cond (uS/cm)', 'M-Alk (ppm)', 'SiO2 (ppm)', 'Cl (ppm)', 'Fe (ppm)'],
-            '보급수 (Make-up)': [f"{mu_v['pH']:.1f}", f"{mu_v['Cond (uS/cm)']:.1f}", f"{mu_v['M-Alk (ppm)']:.1f}", f"{mu_v['SiO2 (ppm)']:.1f}", f"{mu_v['Cl (ppm)']:.1f}", f"{mu_v['Fe (ppm)']:.2f}"],
-            '혼합 급수 (Feed)': ["-", f"{feed_cond:.1f}", f"{feed_alk:.1f}", f"{feed_sio2:.1f}", f"{feed_cl:.1f}", f"{feed_fe:.2f}"],
-            '관수 (Boiler W)': [f"{p_ph:.1f}", f"{p_cond:.0f}", f"{p_alk:.0f}", f"{p_sio2:.1f}", f"{p_cl:.1f}", f"{p_fe:.2f}"],
-            'ASME 기준': ["10.5~11.5", f"{l_cond:.0f} 이하", "P 비례", "P 비례", "-", "-"]
+            '측정 항목': ['pH (예측값)', 'P-Alk (ppm)', 'M-Alk (ppm)', 'Cond (uS/cm)', 'SiO2 (ppm)', 'Cl (ppm)'],
+            '보급수 (Make-up)': [f"{mu_v['pH']:.1f}", f"{feed_p_alk:.1f} (Est)", f"{mu_v['M-Alk (ppm)']:.1f}", f"{mu_v['Cond (uS/cm)']:.1f}", f"{mu_v['SiO2 (ppm)']:.1f}", f"{mu_v['Cl (ppm)']:.1f}"],
+            '혼합 급수 (Feed)': ["-", f"{feed_p_alk*mu_ratio:.1f}", f"{feed_m_alk:.1f}", f"{feed_cond:.1f}", f"{feed_sio2:.1f}", f"{feed_cl:.1f}"],
+            '관수 (Boiler W)': [f"{p_ph:.1f}", f"{p_p_alk:.0f}", f"{p_m_alk:.0f}", f"{p_cond:.0f}", f"{p_sio2:.1f}", f"{p_cl:.1f}"],
+            'ASME/관리 기준': ["11.0~11.8", "M-Alk의 1/2↑", "800 이하", f"{l_cond:.0f} 이하", "P 비례", "-"]
         })
         st.table(p_df)
+        
+        # P-Alk/M-Alk 비율 진단
+        if p_m_alk > 0:
+            pm_ratio = p_p_alk / p_m_alk
+            if pm_ratio < 0.4:
+                st.warning(f"⚠️ **P-Alk 부족 ({pm_ratio:.2f}):** P-Alk가 M-Alk의 50% 미만입니다. 실리카 스케일 위험이 있으니 가성소다 비중을 높이세요.")
+            elif pm_ratio > 0.6:
+                st.info(f"✅ **Free OH 확보 ({pm_ratio:.2f}):** P-Alk가 충분하여 실리카가 용해 상태로 유지됩니다.")
 
 # --- Tab 2: Chemical Program (설명/팁 추가 업그레이드) ---
     with tab_chem_prog:
@@ -1636,9 +1614,9 @@ elif "RO" in program_mode:
             ])
             st.dataframe(disp_df, hide_index=True, use_container_width=True, height=300)
 
-        # 3. 농축수 예측 (우측)
+# 3. 농축수 예측 (우측) - [수정됨] pH 완충 효과 반영
         with col_sim_result:
-            # 전체 딕셔너리 생성 (계산용) - PO4 없음
+            # 전체 딕셔너리 생성 (계산용)
             v_main = {
                 'Ca': val_ca, 'Mg': final_mg, 'Na': final_na, 'K': 5.0,
                 'HCO3': calc_hco3, 'SO4': final_so4, 'Cl': val_cl, 'NO3': 2.0,
@@ -1649,7 +1627,12 @@ elif "RO" in program_mode:
             cf_final = 1 / (1 - (in_rec / 100))
             feed_tds = sum([v for k, v in v_main.items() if k != 'pH'])
             brine_tds_final = feed_tds * cf_final
-            brine_ph_final = in_ph + math.log10(cf_final)
+            
+            # [핵심 수정] 농축수 pH 예측 (Buffering Effect 적용)
+            # 기존: in_ph + math.log10(cf_final) (너무 높게 예측됨)
+            # 변경: 완충 계수(0.7) 적용 -> 실제 현장 값과 유사해짐
+            ph_increase = math.log10(cf_final) * 0.7
+            brine_ph_final = in_ph + ph_increase
 
             # 삼투압
             temp_k = in_temp + 273.15
@@ -1665,7 +1648,7 @@ elif "RO" in program_mode:
             st.markdown("---")
             st.markdown("###### ⚠️ 스케일 위험 진단")
             
-            # 진단 로직 (PO4 제거)
+            # 진단 로직 (PO4 제거됨)
             p_targets = ['Ca', 'SO4', 'SiO2', 'Fe']
             
             def check_risk(ion, val):
@@ -1680,15 +1663,31 @@ elif "RO" in program_mode:
             })
             st.table(comp_df)
 
-            # LSI 계산
+            # LSI 계산 (수정된 pH 적용)
             lsi_val = 0.0
             if v_main.get('Ca',0) > 0 and v_main.get('HCO3',0) > 0:
-                lsi_val = brine_ph_final - (9.3 - math.log10(v_main['Ca']) - math.log10(v_main['HCO3']) + (feed_tds/10000))
+                # LSI = pH - pHs
+                # pHs = (9.3 + A + B) - (C + D)
+                # A: TDS factor, B: Temp factor, C: Ca factor, D: Alk factor
+                
+                tds_brine = brine_tds_final
+                ca_brine = v_main['Ca'] * cf_final
+                alk_brine = v_main['HCO3'] * cf_final # HCO3 as CaCO3 환산 필요하나 약식으로 적용
+                
+                # 정밀 약식 LSI (TDS 보정 포함)
+                lsi_val = brine_ph_final - (9.3 + (math.log10(tds_brine) - 1)/10 + 
+                                          (-13.12 * math.log10(temp_k) + 34.55) - 
+                                          (math.log10(ca_brine) - 0.4 + math.log10(alk_brine)))
             
-            if lsi_val > 2.0:
-                st.warning(f"⚠️ LSI {lsi_val:.2f}: 탄산칼슘 스케일 위험")
+            # 결과 표시
+            if lsi_val > 2.5:
+                st.error(f"🚨 LSI {lsi_val:.2f}: 심각한 스케일 위험 (High Risk)")
+            elif lsi_val > 1.5:
+                st.warning(f"⚠️ LSI {lsi_val:.2f}: 스케일 형성 주의 (Warning)")
             else:
-                st.success(f"✅ LSI {lsi_val:.2f}: 안전")
+                st.success(f"✅ LSI {lsi_val:.2f}: 화학적 안정 (Stable)")
+            
+            st.caption(f"※ 예측 pH: **{brine_ph_final:.2f}** (중탄산 완충 효과 반영됨)")
 
     # ==========================================================================
     # [Tab 2] 🔮 성능 열화 및 부하 진단
@@ -2342,26 +2341,32 @@ elif "RO" in program_mode:
                 - **건식 (Dry):** 12개월 이상 장기 보관 가능. 동파 위험 없음.
                 - **습식 (Wet):** 12개월 경과 시 미생물 오염 확인 필요. 5~45°C 보관 (동결 주의).
                 """) 
+
 # ==============================================================================
-# [Module 4] Wastewater Reuse: Smart Engineering (안전 경고 강화 버전)
+# [Module 4] Wastewater Reuse: Smart Engineering (생물학적 처리 추가 Ver)
 # ==============================================================================
-elif "Wastewater" in program_mode:
-    # 1. 공정 라이브러리 (정제된 데이터베이스 및 설계 한계치)
+elif "WWT" in program_mode:
+    # 1. 공정 라이브러리 (생물학적 처리 3종 추가: 활성슬러지, MBR, MBBR)
     PROCESS_LIB = {
-        "Neutralization (중화)": {"SS": 0, "COD": 0, "TDS": 1.05, "Hard": 0, "Oil": 0, "Limit": {}, "Name": "중화"},
-        "DAF (가압부상)": {"SS": 0.85, "COD": 0.3, "TDS": 1.0, "Hard": 0, "Oil": 0.90, "Limit": {"Oil": 300}, "Name": "DAF"},
-        "Coagulation (응집침전)": {"SS": 0.9, "COD": 0.4, "TDS": 1.1, "Hard": 0.2, "Oil": 0.6, "Limit": {"SS": 5000}, "Name": "응집침전"},
-        "AFM Filter (여과)": {"SS": 0.8, "COD": 0.2, "TDS": 1.0, "Hard": 0, "Oil": 0.3, "Limit": {"SS": 50}, "Name": "AFM"},
-        "UF (한외여과)": {"SS": 0.99, "COD": 0.4, "TDS": 1.0, "Hard": 0, "Oil": 0.5, "Limit": {"SS": 20, "Oil": 5}, "Name": "UF"},
-        "AOP (고도산화)": {"SS": 0.2, "COD": 0.85, "TDS": 1.05, "Hard": 0, "Oil": 0.5, "Limit": {"COD": 500}, "Name": "AOP"},
-        "RO System (역삼투)": {"SS": 0.99, "COD": 0.98, "TDS": 0.99, "Hard": 0.99, "Oil": 0.99, "Limit": {"SS": 1.0, "COD": 20, "Oil": 0.1}, "Name": "RO"}
+        "Neutralization (중화)":   {"SS": 0,    "COD": 0,    "TDS": 1.05, "Hard": 0,    "Oil": 0,    "Limit": {}, "Name": "중화"},
+        "DAF (가압부상)":          {"SS": 0.85, "COD": 0.30, "TDS": 1.0,  "Hard": 0,    "Oil": 0.90, "Limit": {"Oil": 300}, "Name": "DAF"},
+        "Coagulation (응집침전)":  {"SS": 0.90, "COD": 0.40, "TDS": 1.1,  "Hard": 0.2,  "Oil": 0.60, "Limit": {"SS": 5000}, "Name": "응집침전"},
+        # [New] 생물학적 처리 (유기물 제거 특화)
+        "Bio-Standard (활성슬러지)": {"SS": 0.85, "COD": 0.85, "TDS": 1.0,  "Hard": 0,    "Oil": 0.50, "Limit": {"Oil": 30, "COD": 3000}, "Name": "Bio"},
+        "MBR (분리막생물반응조)":    {"SS": 0.99, "COD": 0.95, "TDS": 1.0,  "Hard": 0,    "Oil": 0.50, "Limit": {"Oil": 20, "COD": 5000}, "Name": "MBR"},
+        "MBBR (유동상생물반응조)":   {"SS": 0.80, "COD": 0.80, "TDS": 1.0,  "Hard": 0,    "Oil": 0.50, "Limit": {"Oil": 50, "COD": 4000}, "Name": "MBBR"},
+        # [후처리]
+        "AFM Filter (여과)":       {"SS": 0.80, "COD": 0.20, "TDS": 1.0,  "Hard": 0,    "Oil": 0.30, "Limit": {"SS": 50}, "Name": "AFM"},
+        "UF (한외여과)":           {"SS": 0.99, "COD": 0.40, "TDS": 1.0,  "Hard": 0,    "Oil": 0.50, "Limit": {"SS": 20, "Oil": 5}, "Name": "UF"},
+        "AOP (고도산화)":          {"SS": 0.20, "COD": 0.85, "TDS": 1.05, "Hard": 0,    "Oil": 0.50, "Limit": {"COD": 500}, "Name": "AOP"},
+        "RO System (역삼투)":      {"SS": 0.99, "COD": 0.98, "TDS": 0.99, "Hard": 0.99, "Oil": 0.99, "Limit": {"SS": 1.0, "COD": 20, "Oil": 0.1}, "Name": "RO"}
     }
 
     # 2. 데이터 초기화
     if 'ww_data' not in st.session_state:
         st.session_state.ww_data = pd.DataFrame({
             'Parameter': ['pH', 'TDS', 'SS', 'COD', 'Hard', 'Oil'],
-            'Value': [7.0, 1500.0, 200.0, 400.0, 300.0, 20.0]
+            'Value': [7.0, 1500.0, 200.0, 800.0, 300.0, 20.0] # COD를 좀 높여둠
         })
 
     st.title("♻️ Wastewater Reuse: Smart Engineering System")
@@ -2374,20 +2379,42 @@ elif "Wastewater" in program_mode:
         st.session_state.ww_data = edited_df 
         w_v = dict(zip(edited_df['Parameter'], edited_df['Value']))
 
-    # 수질 기반 자동 추천 엔진
+    # [업그레이드] 수질 기반 자동 추천 엔진
     recom_list = []
-    if w_v['pH'] < 6.5 or w_v['pH'] > 8.5: recom_list.append("Neutralization (중화)")
-    if w_v['Oil'] > 50: recom_list.append("DAF (가압부상)")
-    if w_v['SS'] > 100: recom_list.append("Coagulation (응집침전)")
-    if w_v['COD'] > 300: recom_list.append("AOP (고도산화)")
-    if w_v['SS'] > 10: recom_list.append("AFM Filter (여과)")
-    if w_v['TDS'] > 300: recom_list.append("RO System (역삼투)")
     
-    auto_suggested = [p for p in list(PROCESS_LIB.keys()) if p in recom_list]
+    # 1. 전처리 (유분/pH/SS)
+    if w_v['Oil'] > 30: recom_list.append("DAF (가압부상)")
+    elif w_v['SS'] > 100: recom_list.append("Coagulation (응집침전)")
+    
+    if w_v['pH'] < 6.0 or w_v['pH'] > 9.0: recom_list.insert(0, "Neutralization (중화)")
+
+    # 2. [New] 유기물 제거 (생물학적 처리 추천)
+    if w_v['COD'] > 500:
+        if w_v['TDS'] > 2000: # 염분이 높으면 미생물 취약 -> AOP 추천 가능성
+             recom_list.append("AOP (고도산화)")
+        else: # 일반적인 고농도 유기물 -> 생물학적 처리
+             recom_list.append("MBR (분리막생물반응조)") # MBR을 우선 추천 (재이용 효율 좋음)
+    
+    # 3. 고도처리 (RO 전처리)
+    if "MBR" not in str(recom_list): # MBR이 없으면 필터/UF 필요
+        if w_v['SS'] > 10: recom_list.append("AFM Filter (여과)")
+    
+    # 4. 최종 탈염
+    if w_v['TDS'] > 500: recom_list.append("RO System (역삼투)")
+    
+    # 추천 리스트 필터링
+    auto_suggested = [p for p in list(PROCESS_LIB.keys()) if any(x in p for x in recom_list) or p in recom_list]
+    # MBR과 Bio-Standard가 겹치면 MBR 우선 (순서 정렬)
+    if "MBR (분리막생물반응조)" in auto_suggested and "Bio-Standard (활성슬러지)" in auto_suggested:
+        auto_suggested.remove("Bio-Standard (활성슬러지)")
 
     with col_rec:
         st.subheader("🏗️ Process Recommendation")
+        if w_v['COD'] > 500:
+            st.info(f"💡 **AI 분석:** 고농도 유기물({w_v['COD']}ppm) 감지 → **생물학적 처리(MBR)**가 필수적입니다.")
+        
         st.success(f"**현재 수질 맞춤형 설계:** \n\n {' → '.join(auto_suggested)}")
+        
         sel_procs = st.multiselect(
             "공정 설계를 확정하세요:",
             list(PROCESS_LIB.keys()),
@@ -2402,30 +2429,33 @@ elif "Wastewater" in program_mode:
         curr = {"SS": w_v['SS'], "COD": w_v['COD'], "TDS": w_v['TDS'], "Hard": w_v['Hard'], "Oil": w_v['Oil']}
         sim_log.append({"Step": "Raw Water", **curr, "Status": "✅ OK"})
         
-        # [추가] 안전 경고 저장 리스트
         safety_alerts = []
         
         for p_name in sel_procs:
             proc = PROCESS_LIB[p_name]
             status = "✅ OK"
             
-            # [추가] 공정 진입 전 유입수 수질 안전 진단
+            # 안전 진단 (생물학적 처리는 유분(Oil)에 민감함!)
             for param, limit in proc['Limit'].items():
                 if curr.get(param, 0) > limit:
                     status = "❌ CRITICAL"
-                    safety_alerts.append(f"🚨 **{p_name}** 유입부 {param} 농도({curr[param]:.1f})가 설계 한계({limit})를 초과했습니다.")
+                    safety_alerts.append(f"🚨 **{p_name}** 유입부 {param} 농도({curr[param]:.1f})가 설계 한계({limit})를 초과했습니다. 전처리를 보강하세요.")
 
             # 제거 효율 적용
             curr["SS"] *= (1 - proc.get('SS', 0))
             curr["COD"] *= (1 - proc.get('COD', 0))
             curr["Oil"] *= (1 - proc.get('Oil', 0))
             curr["Hard"] *= (1 - proc.get('Hard', 0))
-            if "RO" in p_name or "NF" in p_name: curr["TDS"] *= (1 - proc.get('TDS', 0))
+            
+            # TDS 증가/감소 (약품 투입 시 증가, RO 시 감소)
+            if "RO" in p_name: curr["TDS"] *= (1 - proc.get('TDS', 0))
             else: curr["TDS"] *= proc.get('TDS', 1.0)
             
             sim_log.append({"Step": p_name, **curr, "Status": status})
 
         df_log = pd.DataFrame(sim_log)
+        
+        # 그래프
         fig = go.Figure()
         for p in ['SS', 'COD', 'Oil']:
             fig.add_trace(go.Scatter(x=df_log['Step'], y=df_log[p], name=p, mode='lines+markers'))
@@ -2433,19 +2463,30 @@ elif "Wastewater" in program_mode:
         fig.update_layout(yaxis2=dict(overlaying="y", side="right"), height=350, legend=dict(orientation="h", y=1.2))
         st.plotly_chart(fig, use_container_width=True)
         
-        # [추가] 설계 위험 감지 시 경고창 출력
         if safety_alerts:
             with st.container(border=True):
                 st.error("⚠️ **Engineering Safety Warning (설계 위험 감지)**")
                 for alert in safety_alerts: st.write(alert)
-                st.info("💡 **전문가 제언:** RO/NF 막 보호를 위해 전처리 공정을 보강하십시오.")
+                if "Bio" in str(sel_procs) or "MBR" in str(sel_procs):
+                    st.caption("💡 **Tip:** 생물학적 처리조는 **유분(Oil)** 유입 시 미생물이 사멸할 수 있습니다. DAF 등 전처리가 필수입니다.")
 
         st.dataframe(df_log.style.format({c: "{:.1f}" for c in ['SS','COD','TDS','Hard','Oil']}), use_container_width=True)
 
     with tab_sludge:
         flow = st.number_input("설계 유량 (m3/hr)", value=100.0)
-        daily_sludge = (flow * 24 * (w_v['SS'] - curr['SS'])) / 1000.0 * 1.5
-        st.metric("일일 슬러지 발생량 예측", f"{daily_sludge:.1f} kg/day")
+        
+        # 슬러지 발생량 계산 로직 (물리적 + 생물학적 잉여 슬러지 고려)
+        phys_sludge = (flow * 24 * (w_v['SS'] - curr['SS'])) / 1000.0 * 1.5
+        
+        bio_sludge = 0.0
+        if any("MBR" in p or "Bio" in p for p in sel_procs):
+            # COD 제거량의 약 30~40%가 잉여 슬러지로 전환됨
+            removed_cod = w_v['COD'] - curr['COD']
+            bio_sludge = (flow * 24 * removed_cod) / 1000.0 * 0.4
+            st.info(f"🦠 **생물학적 잉여 슬러지(Bio-Sludge):** {bio_sludge:.1f} kg/day 추가 발생됨")
+
+        total_sludge = phys_sludge + bio_sludge
+        st.metric("일일 슬러지 발생량 예측 (Total)", f"{total_sludge:.1f} kg/day")
 
     with tab_report:
         last = df_log.iloc[-1]
