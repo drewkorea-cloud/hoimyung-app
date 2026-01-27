@@ -1727,20 +1727,7 @@ elif "RO" in program_mode:
 
             st.divider()
 
-            c_res1, c_res2 = st.columns(2)
-            with c_res1:
-                st.metric("평균 플럭스 (Average Flux)", f"{flux_gfd:.1f} GFD")
-                if flux_gfd > 18.0: st.error("⛔ **과부하 (High Flux)**")
-                elif flux_gfd > 15.0: st.warning("⚠️ **주의 (Medium)**")
-                else: st.success("✅ **안정 (Conservative)**")
-
-            with c_res2:
-                st.metric("온도 보정 압력 (at 25℃)", f"{norm_press:.1f} bar")
-                if norm_press > 15.0: st.error("⛔ **막힘 의심 (Fouling)**")
-                else: st.success("✅ **정상 (Normal)**")
-            # --- [Result] 진단 결과 패널 ---
-            c_res1, c_res2 = st.columns(2)
-            
+            c_res1, c_res2 = st.columns(2)            
             # ① Flux 진단
             with c_res1:
                 st.metric("평균 플럭스 (Average Flux)", f"{flux_gfd:.1f} GFD")
@@ -1758,6 +1745,79 @@ elif "RO" in program_mode:
                     st.error("⛔ **막힘 의심 (Fouling):** 수온 영향을 제외해도 압력이 높습니다. 스케일/오염이 진행 중입니다.")
                 else:
                     st.success("✅ **정상 (Normal):** 현재 압력은 수온 영향이거나 정상 범위입니다.")
+# ------------------------------------------------------------------
+            # [추가됨] Handbook 기반: 농도 분극(Beta) & NDP 정밀 진단
+            # ------------------------------------------------------------------
+            st.divider()
+            st.markdown("#### 🔬 엔지니어링 정밀 진단 (Handbook Theory)")
+            st.info("💡 단순 압력이 아닌, **농도 분극(CP)**과 **유효 구동 압력(NDP)**을 분석하여 멤브레인의 '진짜 성능'을 판별합니다.")
+
+            # 1. 추가 데이터 입력 (진단을 위해 필요한 값만 추가)
+            with st.expander("⚙️ 정밀 진단 데이터 입력 (Click)", expanded=True):
+                c_eng1, c_eng2 = st.columns(2)
+                with c_eng1:
+                    # 원수 전도도가 없으면 기본값 2000 사용
+                    eng_feed_cond = st.number_input("원수 전도도 (Feed Cond, µS/cm)", value=2000.0, step=100.0, key="eng_cond")
+                    eng_perm_press = st.number_input("처리수 배압 (Permeate Back Press, bar)", value=0.0, step=0.1, key="eng_pp")
+                with c_eng2:
+                    # 상단에서 입력한 값들을 그대로 가져와서 보여줌 (중복 입력 방지)
+                    st.caption(f"ℹ️ 운전 압력: **{op_press} bar** (연동됨)")
+                    st.caption(f"ℹ️ 회수율: **{curr_rec} %** (연동됨)")
+                    st.caption(f"ℹ️ 수온: **{op_temp} °C** (연동됨)")
+
+            # 2. 물리학적 계산 엔진 (Handbook Ch.6 & 4)
+            # (1) 농축 계수 & 전도도 계산
+            eng_cf = 1.0 / (1.0 - (curr_rec / 100.0)) if curr_rec < 100 else 1.0
+            eng_rej_cond = eng_feed_cond * eng_cf
+
+            # (2) 삼투압 (Osmotic Pressure) 계산
+            # TDS ~ Cond * 0.6, 1000 ppm ~ 0.7 bar (Rule of Thumb)
+            eng_feed_tds = eng_feed_cond * 0.6
+            eng_rej_tds = eng_rej_cond * 0.6
+            
+            # 온도 보정 (Kelvin)
+            eng_temp_k = op_temp + 273.15
+            eng_osm_feed = (eng_feed_tds / 1000.0) * 0.7 * (eng_temp_k / 298.15)
+            eng_osm_rej = (eng_rej_tds / 1000.0) * 0.7 * (eng_temp_k / 298.15)
+            eng_osm_avg = (eng_osm_feed + eng_osm_rej) / 2.0
+
+            # (3) 농도 분극 계수 (Beta Factor) - FilmTec Manual 식 적용
+            # 회수율이 높을수록 표면 농도가 기하급수적으로 증가함
+            eng_beta = math.exp(0.7 * (curr_rec / 100.0))
+            eng_surf_cond = eng_rej_cond * eng_beta  # 멤브레인 표면 실제 농도
+
+            # (4) NDP (Net Driving Pressure: 유효 구동 압력)
+            # NDP = 펌프압력 - 삼투압 - 차압손실(2bar) - 배압
+            eng_p_loss = 2.0  # 모듈 차압 가정
+            eng_ndp = op_press - eng_osm_avg - eng_p_loss - eng_perm_press
+
+            # 3. 진단 결과 시각화
+            k1, k2, k3 = st.columns(3)
+            
+            # [결과 1] 농축수 농도 (Bulk)
+            k1.metric("농축수 전도도 (Bulk)", f"{eng_rej_cond:.0f} µS", f"농축 {eng_cf:.1f}배")
+            
+            # [결과 2] 표면 농도 (Surface) - 핵심 지표
+            k2.metric("막 표면 전도도 (Surface)", f"{eng_surf_cond:.0f} µS", f"CP Factor {eng_beta:.2f}",
+                     help="농도 분극(Concentration Polarization)에 의해 막 표면은 벌크보다 10~20% 더 짭니다.")
+            
+            # [결과 3] NDP (유효 압력)
+            ndp_state = "normal"
+            if eng_ndp < 3.0: ndp_state = "inverse" # 너무 낮으면 빨간색
+            k3.metric("유효 구동 압력 (NDP)", f"{eng_ndp:.1f} bar", f"삼투압 -{eng_osm_avg:.1f} bar", delta_color=ndp_state)
+
+            # 4. 종합 진단 코멘트
+            if eng_beta > 1.2:
+                st.warning(f"⚠️ **농도 분극 심화 ({eng_beta:.2f}):** 회수율이 높아 막 표면 농도가 위험 수준입니다. 스케일 방지제를 증량하거나 회수율을 낮추십시오.")
+            
+            if eng_ndp < 5.0:
+                st.error(f"🚨 **NDP 부족 ({eng_ndp:.1f} bar):** 삼투압({eng_osm_avg:.1f} bar)이 너무 높아, 물을 생산할 여력이 없습니다. 압력을 올리거나 세정하십시오.")
+            elif eng_ndp > 15.0:
+                st.warning(f"⚠️ **과도한 NDP ({eng_ndp:.1f} bar):** 막 압밀(Compaction) 현상으로 수명이 단축될 수 있습니다.")
+            else:
+                st.success(f"✅ **NDP 양호:** 효율적인 에너지로 운전되고 있습니다.")
+            
+            st.markdown("") # 디자인 여백
 
         # --- [Section 2] 미래 성능 예측 (기존 코드 유지 및 디자인 개선) ---
         st.markdown("")
@@ -1919,10 +1979,10 @@ elif "RO" in program_mode:
         
         ro_chem_list = PRODUCT_CATALOG['RO']['Antiscalant']
         CHEM_SIM_MAP = {
-            'HRD-2200 (General)':    {'CaCO3': 0.15, 'CaSO4': 0.20, 'BaSO4': 0.15, 'SiO2': 0.60, 'Mn': 1.0, 'Struvite': 0.8},
-            'HRD-3000 (High Silica)':{'CaCO3': 0.25, 'CaSO4': 0.30, 'BaSO4': 0.20, 'SrSO4': 0.25, 'SiO2': 0.20, 'Mn': 1.0, 'Struvite': 0.8},
-            'HRD-2050 (Struvite)':   {'CaCO3': 0.20, 'CaSO4': 0.25, 'BaSO4': 0.20, 'SrSO4': 0.25, 'SiO2': 0.70, 'Mn': 1.0, 'Struvite': 0.15},
-            'HRD-2240 (High Sulfate)':{'CaCO3': 0.20, 'CaSO4': 0.15, 'BaSO4': 0.05, 'SrSO4': 0.10, 'SiO2': 0.70, 'Mn': 1.0, 'Struvite': 0.8}
+            'HRD-2200 (General)':     {'CaCO3': 0.15, 'CaSO4': 0.20, 'SiO2': 0.60, 'Mn': 1.0},
+            'HRD-3000 (High Silica)': {'CaCO3': 0.25, 'CaSO4': 0.30, 'SiO2': 0.20, 'Mn': 1.0},
+            'HRD-2050 (Struvite)':    {'CaCO3': 0.20, 'CaSO4': 0.25, 'SiO2': 0.70, 'Mn': 1.0}, # Struvite 제거됨
+            'HRD-2240 (High Sulfate)':{'CaCO3': 0.20, 'CaSO4': 0.15, 'SiO2': 0.70, 'Mn': 1.0}
         }
 
         col_sel1, col_sel2 = st.columns([1.5, 1])
