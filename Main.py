@@ -1900,13 +1900,15 @@ elif "RO" in program_mode:
         with col_in4: 
             in_ph = st.number_input("원수 pH", value=7.5, step=0.1, key="ro_in_ph_fix")
 
-    # 5개 탭 구성
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # 6개 탭 구성
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🧪 스마트 수질 분석", 
         "🔮 성능 열화 진단", 
         "🚨 스케일 정밀 진단", 
         "💊 약품 투입 시뮬레이션", 
-        "🛠️ O&M 및 CIP 가이드"
+        "🛠️ O&M 및 CIP 가이드",
+        "📘 기술 매뉴얼 (Formula)"
+
     ])
 
 # ==========================================================================
@@ -2849,14 +2851,77 @@ elif "RO" in program_mode:
                 st.markdown(f"- 약품 ({desc_alk}): **{req_alk_kg:.1f} kg**")
                 st.markdown(f"- 목표 pH: **11.0 ~ 12.0**")
 
-        
+    with tab6:
+        st.subheader("📘 RO Engineering Manual & Troubleshooting")
+        st.markdown("본 매뉴얼은 **ASTM D4516 (Standard Practice for Standardizing RO Performance Data)** 및 주요 멤브레인 제조사(Dupont/Hydranautics) 기술 자료를 기반으로 합니다.")
+
+        # 1. 핵심 성능 계산 공식
+        with st.expander("📐 1. 핵심 성능 계산 공식 (Key Formulas)", expanded=True):
+            st.markdown("#### (1) 회수율 (Recovery Rate)")
+            st.latex(r"R (\%) = \frac{Q_p}{Q_f} \times 100")
+            st.caption("$Q_p$: 생산 유량, $Q_f$: 공급 유량. (일반적 범위: 해수 40~50%, 기수 75~85%)")
+
+            st.markdown("#### (2) 염제거율 (Salt Rejection)")
+            st.latex(r"SR (\%) = \left( 1 - \frac{C_p}{C_f} \right) \times 100")
+            st.caption("$C_p$: 생산수 농도, $C_f$: 공급수 농도. (최신 RO막은 99.5% 이상)")
+
+            st.markdown("#### (3) 염투과율 (Salt Passage)")
+            st.latex(r"SP (\%) = 100 - SR")
+            st.caption("막을 통과하여 생산수로 넘어가는 염분의 비율입니다. 수온이 1℃ 오르면 염투과는 약 3~5% 증가합니다.")
+
+            st.markdown("#### (4) 정규화 유량 (Normalized Permeate Flow)")
+            st.info("💡 운전 조건(압력, 온도)이 변해도 막의 **'진짜 성능'**이 떨어졌는지 확인하기 위해 표준 조건(25℃)으로 환산하는 공식입니다.")
+            st.latex(r"Q_{norm} = Q_{act} \times \left( \frac{NDP_{ref}}{NDP_{act}} \right) \times \frac{TCF_{ref}}{TCF_{act}}")
+            st.caption("유량이 줄어도 정규화 유량이 일정하다면, 막힘(Fouling)이 아니라 단순히 수온/압력이 낮아진 것입니다.")
+
+        # 2. 오염 진단 매트릭스 (가장 중요한 부분)
+        with st.expander("🚨 2. 트러블슈팅 매트릭스 (Troubleshooting Matrix)", expanded=True):
+            st.markdown("#### 증상별 오염 원인 판별 가이드")
+            st.markdown("RO 운전 데이터(정규화 기준)의 변화 패턴을 통해 오염 종류를 진단합니다.")
+
+            trouble_data = {
+                "구분 (Symptoms)": ["정규화 유량 ↓ (Flow Drop)", "정규화 유량 ↓ (Flow Drop)", "정규화 유량 ↑ (Flow Increase)", "차압(Delta P) 급증 ↑"],
+                "염제거율 (Salt Rejection)": ["약간 감소 또는 일정", "급격한 감소", "급격한 감소", "상승 또는 일정"],
+                "차압 (Delta P)": ["상승 (1단 위주)", "상승 (2단 위주)", "변화 없음", "급격한 상승"],
+                "예상 원인 (Diagnosis)": ["입자성/Colloidal 오염 (SDI 높음)", "스케일(Scale) 발생 (CaCO3, CaSO4)", "막 파손(Oxidation) 또는 O-ring 누수", "미생물 오염 (Biofouling)"],
+                "조치 (Action)": ["SDI 체크, 필터 교체, 알칼리 세정", "스케일 방지제 점검, 산성 세정", "Probing Test 수행, 엘리먼트 교체", "살균제(Biocide) 충격 요법, 알칼리 세정"]
+            }
+            st.table(pd.DataFrame(trouble_data))
+
+        # 3. CIP 가이드
+        with st.expander("🧼 3. CIP (Chemical Cleaning) 가이드라인", expanded=False):
+            st.markdown("#### 세정 시점 (When to Clean)")
+            st.warning("""
+            다음 중 하나라도 해당되면 **즉시** 세정을 실시해야 합니다. (지연 시 성능 회복 불가)
+            1. **정규화 유량(N.Flow):** 초기 대비 **10 ~ 15% 감소** 시
+            2. **정규화 차압(N.DP):** 초기 대비 **15% 상승** 시
+            3. **염투과율(Salt Passage):** 초기 대비 **10 ~ 15% 증가** 시
+            """)
+
+            st.markdown("#### 세정 순서 (Sequence)")
+            st.markdown("""
+            1. **알칼리 세정 (High pH):** 유기물, 미생물, 실리카 제거 (pH 11~12, 30~35℃)
+            2. **린싱 (Rinsing):** 생산수로 pH 중성까지 헹굼
+            3. **산성 세정 (Low pH):** 금속 산화물, 탄산염 스케일 제거 (pH 2~3, 25℃)
+            4. **주의:** 스케일이 주원인인 경우 산성 세정을 먼저 할 수도 있으나, 통상적으로는 **[알칼리 → 산]** 순서를 권장합니다. (유기막이 산성에서 굳어버리는 것을 방지)
+            """)
+
+        # 4. 관리 지표 설명
+        with st.expander("📊 4. 주요 관리 지표 (Indices)", expanded=False):
+            st.markdown("**① SDI (Silt Density Index)**")
+            st.write("- 전처리 효율을 나타내는 지표. RO 유입수는 **SDI < 3.0** (권장), 최대 5.0 이하로 관리해야 함.")
+            
+            st.markdown("**② LSI (Langelier Saturation Index)**")
+            st.write("- 탄산칼슘(CaCO3) 스케일 경향성. **LSI > 1.8** 이상이면 스케일 방지제 투입 필수.")
+            
+            st.markdown("**③ Flux (플럭스)**")
+            st.latex(r"Flux (LMH) = \frac{Flow (m^3/hr)}{Area (m^2)}")
+            st.write("- 단위 면적당 생산량. 너무 높으면 오염 속도가 기하급수적으로 빨라짐.")       
 # ==============================================================================
 # [Module 4] Wastewater Reuse: Expert System (TOC Edition)
 # ==============================================================================
-elif "WWT" in program_mode:
-    import pandas as pd
-    import plotly.graph_objects as go
-    
+if "WWT" in program_mode:
+ 
     # 1. 공정 라이브러리 (TOC 제거율 기반 DB 업데이트)
     PROCESS_LIB = {
         "Screen/EQ": {
@@ -2905,17 +2970,18 @@ elif "WWT" in program_mode:
     }
 
     # --------------------------------------------------------------------------
-    # UI Layout: 5-Step Structure
+    # UI Layout: 6-Step Structure
     # --------------------------------------------------------------------------
     st.title("🏭 WWT Expert System (폐수처리 및 재이용 진단)")
     st.markdown("##### **Load 기반 공정 설계 & 재이용(RO) 타당성 평가 솔루션**")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 1. 유입부하 분석", 
         "⚙️ 2. 공정 자동설계", 
         "🧪 3. 처리효율 시뮬레이션", 
         "📈 4. 진단 및 ROI", 
-        "💧 5. RO 연계/재이용"
+        "💧 5. RO 연계/재이용",
+        "📘 기술 매뉴얼 (Formula)"
     ])
 
     # ==========================================================================
@@ -3182,13 +3248,97 @@ elif "WWT" in program_mode:
                 - 예상 처리수 TDS: **{est_perm_tds:.1f} mg/L** (양호)
                 - 필요 전처리: Cartridge Filter (5 micron)
                 """)
-                if st.button("🚀 이 데이터를 RO 모듈로 전송 (Simulation)"):
-                    st.toast("데이터가 RO 모듈의 'Step 1'으로 전송되었습니다! (RO 탭으로 이동하세요)")
-                    st.session_state['ro_in_flow_fix'] = in_flow
-                    st.session_state['ro_in_temp_fix'] = in_temp
-            else:
-                st.error("⛔ **RO 유입 불가 (Not Recommended)**\n\n전처리(Pre-treatment) 공정을 보강하지 않으면 RO 막이 조기 파손됩니다.")
-                st.markdown("**👉 추천 보강 공정:** UF Membrane 또는 활성탄(ACF) 추가")
+               # -----------------------------------------------------------
+                # [수정된 코드] 콜백(Callback) 방식을 사용하여 에러 해결
+                # -----------------------------------------------------------
+                
+                # 1. 실행할 함수 정의 (이 함수는 버튼을 누르는 순간 실행됨)
+                def go_to_ro_callback(val_flow, val_temp):
+                    # (1) 단위 및 유량 변환
+                    flow_hr = val_flow / 24.0
+                    prod_flow = flow_hr * 0.75
+                    
+                    # (2) RO 입력창 값 세팅
+                    st.session_state['ro_in_flow_fix'] = float(prod_flow)
+                    st.session_state['ro_in_temp_fix'] = float(val_temp)
+                    st.session_state['ro_in_rec_fix'] = 75.0
+                    
+                    # (3) 메뉴 변경 (콜백 함수 안에서는 에러 없이 변경 가능!)
+                    st.session_state['main_menu_mode'] = "3. RO Calc."
+                    
+                # 2. 버튼 생성 (on_click에 함수와 인자 전달)
+                # args=(in_flow, in_temp)를 통해 현재 입력된 유량과 수온을 함수로 넘겨줍니다.
+                if st.button("🚀 이 데이터를 RO 모듈로 전송 (Simulation)", type="primary", 
+                             on_click=go_to_ro_callback, args=(in_flow, in_temp)):
+                    st.toast("데이터 전송 완료! RO 탭으로 이동합니다.")
+    with tab6:
+        st.subheader("📘 Wastewater Treatment Engineering Manual")
+        st.markdown("활성슬러지 공정(Activated Sludge) 진단 및 운전 관리를 위한 핵심 이론서입니다.")
+
+        # 1. 운전 지표 (F/M, SRT)
+        with st.expander("🦠 1. 생물학적 처리 핵심 지표 (Key Parameters)", expanded=True):
+            st.markdown("#### (1) F/M 비 (Food to Microorganism Ratio)")
+            st.info("미생물(MLSS)에게 공급되는 먹이(BOD/COD)의 비율입니다. 운전 상태를 결정하는 가장 중요한 지표입니다.")
+            st.latex(r"F/M (kg \cdot BOD/kg \cdot MLSS \cdot day) = \frac{Q \times BOD}{V \times MLSS}")
+            st.markdown("""
+            - **표준 활성슬러지:** 0.2 ~ 0.4 (정상 침강성)
+            - **장기 폭기/MBR:** 0.05 ~ 0.15 (자기 산화, 슬러지 감량)
+            - **고부하 (High Rate):** > 0.5 (침강 불량, 분산 증식)
+            """)
+
+            st.markdown("#### (2) SVI (Sludge Volume Index)")
+            st.info("슬러지의 침강성을 나타내는 지표로, 벌킹(Bulking) 여부를 판단합니다.")
+            st.latex(r"SVI = \frac{SV_{30} (\%) \times 10,000}{MLSS (mg/L)}")
+            
+            c_svi1, c_svi2 = st.columns(2)
+            with c_svi1:
+                st.write("**판정 기준:**")
+                st.write("- **50 ~ 150:** 양호 (Good Settling)")
+                st.write("- **> 200:** 벌킹 (Bulking) - 사상균 과다")
+                st.write("- **< 50:** 핀 플럭 (Pin Floc) - 과도한 해체")
+            with c_svi2:
+                st.write("**트러블슈팅:**")
+                st.write("- **SVI 높을 때:** DO 증대, 반송율 증대, 염소(Cl2) 살균")
+                st.write("- **SVI 낮을 때:** 폐수 부하 증대, 폭기량 감소")
+
+        # 2. 질소/인 제거 원리
+        with st.expander("♻️ 2. 고도처리 원리 (Nutrient Removal)", expanded=False):
+            st.markdown("#### (1) 질소 제거 (Nitrification & Denitrification)")
+            st.markdown("**Step 1: 질산화 (호기성, Aerobic)**")
+            st.latex(r"NH_4^+ + 2O_2 \rightarrow NO_3^- + 2H^+ + H_2O")
+            st.caption("질산화균(Nitrosomonas, Nitrobacter)이 암모니아를 질산으로 산화시킵니다. (알칼리도 소모, pH 저하)")
+            
+            st.markdown("**Step 2: 탈질 (무산소, Anoxic)**")
+            st.latex(r"2NO_3^- + 10H + \rightarrow N_2 \uparrow + 2OH^- + 4H_2O")
+            st.caption("탈질균이 유기물(탄소원)을 이용하여 질산을 질소 가스로 환원시킵니다. (알칼리도 회복, pH 상승)")
+
+            st.markdown("#### (2) 인 제거 (P Removal)")
+            st.write("- **혐기조 (Anaerobic):** 인 방출 (미생물이 스트레스 상태에서 체내 인을 뱉어냄)")
+            st.write("- **호기조 (Aerobic):** 인 과잉 섭취 (Luxury Uptake, 뱉어낸 양보다 더 많이 섭취)")
+            st.write("- **최종:** 인을 많이 머금은 잉여 슬러지를 폐기(Was)하여 제거.")
+
+        # 3. 미생물 관찰 가이드
+        with st.expander("🔬 3. 미생물 지표 생물 (Indicator Organisms)", expanded=False):
+            st.markdown("현미경 관찰 시 보이는 미생물로 현재 처리 상태를 진단할 수 있습니다.")
+            
+            micro_data = {
+                "상태 (Condition)": ["운전 개시 / 고부하", "양호 (Good Condition)", "해체 / 과폭기", "DO 부족 / 부하 변동"],
+                "지표 미생물 (Organism)": ["편모충류 (Flagellates), 아메바", "종벌레 (Vorticella), 로티퍼 (Rotifier)", "유각변형충 (Arcella)", "사상균 (Sphaerotilus)"],
+                "특징": ["슬러지가 형성되지 않음, 처리수 탁함", "플럭 형성 양호, 처리수 맑음", "플럭이 깨짐, 핀 플럭 발생", "슬러지 팽화(Bulking), 침강성 불량"]
+            }
+            st.dataframe(pd.DataFrame(micro_data), use_container_width=True)
+
+        # 4. 현장 문제 해결 가이드
+        with st.expander("🛠️ 4. 현장 트러블슈팅 가이드", expanded=True):
+            st.markdown("##### 1. 거품(Foam) 발생 원인 및 대책")
+            st.write("- **흰 거품:** 시운전 초기 또는 과도한 세제 유입 → 소포제 살포, 반송 슬러지 증대")
+            st.write("- **갈색 거품:** 과폭기, SRT가 너무 길 때 (Old Sludge) → 잉여 폐기(Was)량 증대")
+            st.write("- **검은 거품:** 혐기화 진행, 공기 공급 부족 → 송풍량 증대, 바닥 침전물 확인")
+
+            st.markdown("##### 2. 처리수 pH 저하")
+            st.write("- **원인:** 질산화가 과도하게 진행되어 알칼리도 소모")
+            st.write("- **대책:** 가성소다(NaOH) 투입 또는 탈질 효율 증대 (탈질 시 알칼리도 회복됨)")
+
 # ==============================================================================
 # [Module 5] Basic Engineering Calculator (RO & AFM Sizing)
 # ==============================================================================
