@@ -16,6 +16,50 @@ import numpy as np
 
 import re
 # ==============================================================================
+# [AI Deep Logic] 심층 약품 선정 및 진단 알고리즘 (Clean Ver)
+# ==============================================================================
+def get_cooling_deep_audit(lsi, rsi, cl_ion, so4, alk, ca_h, temp, holding_time, target_cl2, ph):
+    """
+    [Ultimate Ver] 정상/주의/위험 모든 상태를 브리핑하는 리포트 생성기
+    (제목을 화면에 바로 찍지 않고 리스트에 담아서 반환함)
+    """
+    report = []
+    
+    # 1. 체류시간(HT) 진단
+    report.append("#### 1. ⏱️ 체류시간(Holding Time) 안정성 진단")
+    
+    if holding_time > 48:
+        report.append(f"🐢 **[주의: 장기 체류]** 체류시간이 **{holding_time:.1f}시간**으로 깁니다. 약품이 분해(Reversion)되어 슬러지가 될 위험이 있습니다.")
+        if temp > 35 or target_cl2 > 0.5:
+             report.append(f"🚨 **[약품 분해 경고]** 고수온/산화제 환경입니다. 일반 스케일 방지제는 분해되어 **'인산칼슘 스케일'**이 됩니다. 고성능 폴리머가 필요합니다.")
+    elif holding_time < 10:
+        report.append(f"💸 **[주의: 약품 손실]** 체류시간이 **{holding_time:.1f}시간**으로 너무 짧습니다. 연속 주입보다는 **'충격 투입(Shock Dosing)'**이 경제적입니다.")
+    else:
+        report.append(f"✅ **[안정적]** 체류시간({holding_time:.1f}hr)이 적절하여 약품 효율이 가장 좋은 구간입니다.")
+
+    # 2. 수질 평형(LSI) 진단
+    report.append("#### 2. ⚖️ 수질 평형(LSI) 및 스케일 경향")
+    
+    if lsi > 2.8:
+        report.append(f"🔴 **[위험: 강한 스케일]** LSI {lsi:.2f}. 열교환기 막힘 위험이 큽니다. **'Terpolymer + HEDP'** 복합 처방이 필수입니다.")
+    elif lsi < 0:
+        report.append(f"🔵 **[위험: 부식성 수질]** LSI {lsi:.2f} (음수). 배관 부식 위험이 큽니다. **'Zinc/Polyphosphate'** 방식 프로그램이 필요합니다.")
+        if ph > 8.2:
+            report.append(f"⚠️ **[pH 주의]** pH {ph}에서는 아연(Zinc)이 침전될 수 있습니다. pH를 낮추거나 고성능 분산제를 병행하세요.")
+    else:
+        report.append(f"✅ **[안정적]** LSI {lsi:.2f}로 약품 처리에 최적화된 수질입니다.")
+
+    # 3. 약품 내성 진단
+    report.append("#### 3. 🧪 화학적/미생물적 제한 요소")
+    
+    if target_cl2 >= 0.8:
+        report.append(f"🔥 **[염소 내성 경고]** 목표 잔류 염소({target_cl2}ppm)가 높습니다. 일반 HEDP는 분해되므로 **'PBTC'**를 사용하십시오.")
+    
+    if holding_time > 48 and temp > 30:
+        report.append(f"🦠 **[미생물 경고]** 수온 상승 및 물 고임 현상으로 바이오필름 폭증 조건입니다. 살균제를 증량하십시오.")
+
+    return report
+# ==============================================================================
 # [통합 데이터 로더] 엑셀을 한 번만 읽어서 모든 곳에 공급 (최적화 Ver)
 # ==============================================================================
 @st.cache_data
@@ -871,206 +915,202 @@ if "Cooling" in program_mode:
                 * **철분 (Fe):** `> 1.0 ppm` 시 배관 부식 진행 중이거나 원수 오염 의심.
                 """)
 # ======================================================================
-    # Tab 3: Chemical Program (약품)
+    # Tab 3: Chemical Program (약품 선정) - Layout Optimized Ver
     # ======================================================================
     with tab3:
         st.subheader("3. Intelligent Chemical Selection System")
         st.markdown("수질 분석 및 스케일 경향에 따른 **최적 약품(Inhibitor/Biocide)**을 선정합니다.")
 
         # ------------------------------------------------------------------
-        # 1. 데이터 소스 및 배수량 설정 (배수량 연동 강화 Ver)
+        # [1] 데이터 가져오기 (Tab 1, 2와 연동)
         # ------------------------------------------------------------------
-        
- # [A] Tab 1에서 계산된 배수량 가져오기
-        if 'final_blowdown' in st.session_state and st.session_state['final_blowdown'] > 0:
-            calc_blow = st.session_state['final_blowdown']
-            blow_src_msg = "✅ Tab 1 물질수지 연동됨 (Auto Sync)"
-        else:
-            calc_blow = 10.0 # 기본값
-            blow_src_msg = "⚠️ 기본값 (Tab 1 미실행)"
-
-        # [B] 🔥 연동 문제 해결을 위한 핵심 로직 (Change Detection)
-        # 설명: Tab 1 값이 바뀌었을 때만 Tab 3 입력창을 강제로 업데이트합니다.
-        
-        # 1. 이전에 기억해둔 계산값이 없으면 초기화
-        if 'last_calc_blow' not in st.session_state:
-            st.session_state.last_calc_blow = 0.0
+        if st.session_state.get('run_simulation') and 'sim_results' in st.session_state:
+            sim = st.session_state.sim_results
             
-        # 2. 만약 Tab 1의 계산값이 이전과 달라졌다면? (새로 계산했다는 뜻)
-        if calc_blow != st.session_state.last_calc_blow:
-            st.session_state['estim_blow_fix'] = calc_blow  # 입력창 값을 강제로 덮어씌움
-            st.session_state.last_calc_blow = calc_blow     # 현재 값을 '이전 값'으로 기억
-            # 이렇게 하면, Tab 1이 변할 때만 자동 업데이트되고, 평소에는 수동 입력도 가능합니다.
-
-        # [C] 수질 데이터 (LSI/pH) 가져오기
-        if st.session_state.get('run_simulation'):
-            sim_res = st.session_state.sim_results
-            curr_lsi = sim_res['lsi']
-            curr_ph = sim_res['target_ph']
+            # 수질 데이터
+            real_lsi = sim.get('lsi', 1.5)
+            real_rsi = sim.get('rsi', 6.0)
+            real_cl = sim.get('Cl (ppm)', 100.0)
+            real_so4 = sim.get('SO4 (ppm)', 50.0)
+            real_alk = sim.get('M-Alk (ppm)', 100.0)
+            real_ca = sim.get('Ca-H (ppm)', 200.0)
+            real_ph = sim.get('target_ph', 8.2)
+            real_temp = st.session_state.get('sim_temp', 30.0)
             
-            # 보충수 LSI 계산
-            mu_dict = sim_res.get('mu_dict', {})
-            sys_temp = st.session_state.get('sim_temp', 35.0)
-            mu_lsi = calculate_lsi(
-                mu_dict.get('pH', 7.5),
-                mu_dict.get('Cond (µS)', 200) * 0.7,
-                mu_dict.get('Ca-H (ppm)', 40),
-                mu_dict.get('M-Alk (ppm)', 50),
-                sys_temp
-            )
-            data_src_quality = "✅ 시뮬레이션 데이터 (Simulated)"
+            # 체류시간 계산
+            try:
+                bd_rate = st.session_state.get('final_blowdown', 0.0)
+                sys_vol_val = st.session_state.get('vol_m3', 100.0)
+                real_ht = sys_vol_val / bd_rate if bd_rate > 0 else 48.0
+            except:
+                real_ht = 48.0
+            
+            data_status = "✅ 시뮬레이션 데이터 연동됨"
         else:
-            curr_lsi = 1.5 
-            curr_ph = 8.5
-            mu_lsi = 0.0
-            data_src_quality = "⚠️ 기본값 (시뮬레이션 미실행)"
+            # 기본값
+            real_lsi, real_rsi = 2.0, 5.0
+            real_cl, real_so4 = 150.0, 80.0
+            real_alk, real_ca = 100.0, 200.0
+            real_ph, real_temp = 8.2, 30.0
+            real_ht = 24.0
+            data_status = "⚠️ 기본값 (시뮬레이션 미실행)"
 
-        # [D] 화면 표시 (입력창 + 수질정보)
-        col_b1, col_b2 = st.columns([1, 2])
+        if 'target_cl2' not in locals(): target_cl2 = 0.5 
+
+        # ------------------------------------------------------------------
+        # [2] AI 심층 진단 함수 호출
+        # ------------------------------------------------------------------
+        audit_logs = get_cooling_deep_audit(
+            real_lsi, real_rsi, real_cl, real_so4, real_alk, 
+            real_ca, real_temp, real_ht, target_cl2, real_ph
+        )
+
+        # ------------------------------------------------------------------
+        # [3] 진단 리포트 출력 (제목과 내용을 예쁘게 구분)
+        # ------------------------------------------------------------------
+        st.info(f"🤖 **AI Engineer's Insight:** {data_status}")
         
-        with col_b1:
-            # value 설정을 유지하되, 위쪽 [B] 로직이 우선순위를 가집니다.
-            estim_blow = st.number_input(
-                "운전 배수량 (Blowdown, m3/hr)", 
-                value=float(f"{calc_blow:.1f}"), 
-                key="estim_blow_fix",
-                help="Tab 1 값이 변경되면 자동으로 반영됩니다."
-            )
-            st.caption(blow_src_msg)
-
-        with col_b2:
-            lsi_delta = curr_lsi - mu_lsi
-            st.info(f"""
-            **📊 수질 진단 리포트 ({data_src_quality})**
-            * **💧 보충수 (Make-up) LSI:** `{mu_lsi:.2f}`
-            * **🔥 순환수 (Cycle) LSI:** `{curr_lsi:.2f}`
-            * **📈 변동폭 (Delta):** `{lsi_delta:+.2f}`
-            """)
-
-        st.divider()
-
-        # 2. 엑셀 데이터 로드
+        with st.expander("📋 **[클릭] 약품 선정 전 심층 분석 보고서**", expanded=True):
+            for log in audit_logs:
+                if log.startswith("####"):
+                    st.markdown(log)
+                elif "🔴" in log or "🔥" in log or "🚨" in log:
+                    st.error(log)
+                elif "⚠️" in log or "🐢" in log or "💸" in log or "🔵" in log:
+                    st.warning(log)
+                elif "✅" in log:
+                    st.success(log)
+                else:
+                    st.write(log)
+        
+        # ------------------------------------------------------------------
+        # [4] 약품 DB 로드 및 추천 로직 (위치 이동: 보고서 바로 아래)
+        # ------------------------------------------------------------------
         cooling_db = PRODUCT_CATALOG.get('Cooling', {})
         inh_list = cooling_db.get('Main_Inhibitor', [])
         disp_list = cooling_db.get('Dispersant', [])
         bio_list = cooling_db.get('Biocide', [])
 
         if not inh_list:
-            st.error("🚨 엑셀 데이터 로드 실패: 'Cooling' 시트의 약품 정보를 확인해주세요.")
+            st.error("🚨 약품 DB 로드 실패")
             st.stop()
 
-        # 3. AI 추천 로직
+        # [AI 추천 알고리즘 계산]
         rec_prod_name = inh_list[0]['Name']
-        rec_reason = "기본 추천"
+        rec_reason = "기본 추천" # 초기화
 
-        if curr_lsi > 2.5:
-            match = next((p for p in inh_list if "308AA" in p['Name'] or "524" in p['Name']), None)
+        if real_lsi > 2.5:
+            match = next((p for p in inh_list if "308" in p['Name'] or "524" in p['Name']), None)
             if match: 
                 rec_prod_name = match['Name']
-                rec_reason = f"🔴 **고부하 조건 (LSI {curr_lsi:.2f}):** 스케일 강도가 매우 높습니다. 고성능 폴리머 복합제를 추천합니다."
-        elif 1.5 <= curr_lsi <= 2.5:
+                rec_reason = f"🔴 **고부하 (LSI {real_lsi:.2f}):** 스케일 강도가 매우 높습니다. 고성능 폴리머 복합제가 필요합니다."
+        elif 1.5 <= real_lsi <= 2.5:
             match = next((p for p in inh_list if "180" in p['Name'] or "308" in p['Name']), None)
             if match:
                 rec_prod_name = match['Name']
-                rec_reason = f"🟢 **표준 관리 범위 (LSI {curr_lsi:.2f}):** 경제적인 표준 인산염계 제품이 적합합니다."
+                rec_reason = f"🟢 **표준 관리 범위 (LSI {real_lsi:.2f}):** 경제적인 표준 인산염계 제품이 적합합니다."
         else: # LSI < 1.5
             match = next((p for p in inh_list if "Zinc" in str(p.get('Main_Ingredient','')) or "110" in p['Name']), None)
             if match:
                 rec_prod_name = match['Name']
-                rec_reason = f"🔵 **부식성 수질 (LSI {curr_lsi:.2f}):** 방식 효과가 뛰어난 아연(Zinc) 함유 제품을 추천합니다."
+                rec_reason = f"🔵 **부식성 수질 (LSI {real_lsi:.2f}):** 방식 효과가 뛰어난 아연(Zinc) 함유 제품을 추천합니다."
 
-# 4. 약품 선택 및 상세 정보 연동
+        # [★위치 변경됨★] 추천 사유 박스 출력 (보고서 바로 아래)
+        st.success(f"🧬 **냉각수 약품 추천 사유:** {rec_reason}")
+
+        st.divider()
+
+        # ------------------------------------------------------------------
+        # [5] 배수량 연동 및 입력 (중간 배치)
+        # ------------------------------------------------------------------
+        if 'final_blowdown' in st.session_state and st.session_state['final_blowdown'] > 0:
+            calc_blow = st.session_state['final_blowdown']
+            blow_src_msg = "✅ Tab 1 물질수지 연동됨"
+        else:
+            calc_blow = 10.0
+            blow_src_msg = "⚠️ 기본값 (Tab 1 미실행)"
+
+        if 'last_calc_blow' not in st.session_state: st.session_state.last_calc_blow = 0.0
+        if calc_blow != st.session_state.last_calc_blow:
+            st.session_state['estim_blow_fix'] = calc_blow
+            st.session_state.last_calc_blow = calc_blow
+
+        col_b1, col_b2 = st.columns([1, 2])
+        with col_b1:
+            estim_blow = st.number_input("운전 배수량 (m3/hr)", value=float(f"{calc_blow:.1f}"), key="estim_blow_fix")
+            st.caption(blow_src_msg)
+        with col_b2:
+            st.info(f"📊 **수질 요약:** LSI `{real_lsi:.2f}` / pH `{real_ph:.1f}` / 염소 `{real_cl:.0f} ppm`")
+
+        # ------------------------------------------------------------------
+        # [6] 약품 선택 UI (선택창 내부의 중복 추천 메시지 삭제함)
+        # ------------------------------------------------------------------
         c_sel1, c_sel2, c_sel3 = st.columns(3)
 
-        # [A] 억제제 (Inhibitor) - 수정됨
+        # [A] 억제제 (Inhibitor)
         with c_sel1:
-            st.markdown("#### 🛡️ Inhibitor (주처리제)")
+            st.markdown("#### 🛡️ 주처리제 (Inhibitor)")
             inh_names = [p['Name'] for p in inh_list]
+            # 추천 제품을 기본값으로 자동 선택
             def_idx = inh_names.index(rec_prod_name) if rec_prod_name in inh_names else 0
             sel_inh = st.selectbox("제품 선택", inh_names, index=def_idx, key="sel_inh_fix")
             sel_inh_data = next((p for p in inh_list if p['Name'] == sel_inh), None)
             
-            if sel_inh_data:
-                with st.container(border=True):
-                    inh_dose = st.number_input("주입량 (ppm)", value=float(sel_inh_data.get('Dosage', 50)), key="inh_dose_fix")
-                    
-                    # [변경 포인트] st.caption -> st.markdown (:color 적용)
-                    st.markdown(f"**🧪 성분:** :red[{sel_inh_data.get('Main_Ingredient', '-')}]")
-                    st.markdown(f"**💡 특징:** :blue[{sel_inh_data.get('Sales_Point', '-')}]")
-                    
-                    # [변경 포인트] st.info -> st.markdown (:green 적용)
-                    if sel_inh_data.get('Field_Tip') and sel_inh_data.get('Field_Tip') != '-':
-                        st.markdown(f"**🔧 Tip:** :green[{sel_inh_data.get('Field_Tip')}]")
-
-                    if sel_inh == rec_prod_name:
-                        st.success(f"✅ AI 추천 사유:\n{rec_reason}")
+            with st.container(border=True):
+                inh_dose = st.number_input("주입량 (ppm)", value=float(sel_inh_data.get('Dosage', 50)), key="inh_dose_fix")
+                st.markdown(f"**🧪 성분:** :red[{sel_inh_data.get('Main_Ingredient', '-')}]")
+                st.markdown(f"**💡 특징:** :blue[{sel_inh_data.get('Sales_Point', '-')}]")
+                if sel_inh_data.get('Field_Tip') != '-':
+                    st.markdown(f"**🔧 Tip:** :green[{sel_inh_data.get('Field_Tip')}]")
+                
+                # [삭제됨] 여기에 있던 st.success("AI 추천 사유...")는 위쪽으로 이동했으므로 삭제.
             
             usage_inh = (estim_blow * 24 * inh_dose) / 1000.0
 
-        # [B] 분산제 (Dispersant) - 수정됨
+        # [B] 분산제 (Dispersant)
         with c_sel2:
-            st.markdown("#### 🧪 Dispersant (분산제)")
+            st.markdown("#### 🧪 분산제 (Dispersant)")
             if disp_list:
-                disp_names = [p['Name'] for p in disp_list]
-                sel_disp = st.selectbox("제품 선택", disp_names, key="sel_disp_fix")
+                sel_disp = st.selectbox("제품 선택", [p['Name'] for p in disp_list], key="sel_disp_fix")
                 sel_disp_data = next((p for p in disp_list if p['Name'] == sel_disp), None)
-                
                 with st.container(border=True):
                     disp_dose = st.number_input("주입량 (ppm)", value=float(sel_disp_data.get('Dosage', 20)), key="disp_dose_fix")
-                    
-                    # [변경 포인트] 색상 적용
                     st.markdown(f"**🧪 성분:** :red[{sel_disp_data.get('Main_Ingredient', '-')}]")
                     st.markdown(f"**💡 특징:** :blue[{sel_disp_data.get('Sales_Point', '-')}]")
-                    
-                    if sel_disp_data.get('Field_Tip') and sel_disp_data.get('Field_Tip') != '-':
+                    if sel_disp_data.get('Field_Tip') != '-':
                          st.markdown(f"**🔧 Tip:** :green[{sel_disp_data.get('Field_Tip')}]")
-                
                 usage_disp = (estim_blow * 24 * disp_dose) / 1000.0
             else:
                 st.warning("DB 없음")
                 usage_disp = 0
 
-        # [C] 살균제 (Biocide) - 수정됨
+        # [C] 살균제 (Biocide)
         with c_sel3:
-            st.markdown("#### 🦠 Biocide (살균제)")
+            st.markdown("#### 🦠 살균제 (Biocide)")
             if bio_list:
-                bio_names = [p['Name'] for p in bio_list]
-                sel_bio = st.selectbox("제품 선택", bio_names, key="sel_bio_fix")
+                sel_bio = st.selectbox("제품 선택", [p['Name'] for p in bio_list], key="sel_bio_fix")
                 sel_bio_data = next((p for p in bio_list if p['Name'] == sel_bio), None)
-                
                 with st.container(border=True):
                     bio_dose = st.number_input("주입량 (ppm)", value=float(sel_bio_data.get('Dosage', 50)), key="bio_dose_fix")
-                    
-                    # [변경 포인트] 색상 적용
                     st.markdown(f"**🧪 성분:** :red[{sel_bio_data.get('Main_Ingredient', '-')}]")
                     st.markdown(f"**💡 특징:** :blue[{sel_bio_data.get('Sales_Point', '-')}]")
-                    
-                    if sel_bio_data.get('Field_Tip') and sel_bio_data.get('Field_Tip') != '-':
+                    if sel_bio_data.get('Field_Tip') != '-':
                          st.markdown(f"**🔧 Tip:** :green[{sel_bio_data.get('Field_Tip')}]")
-                
                 usage_bio = (estim_blow * 24 * bio_dose) / 1000.0
             else:
                 st.warning("DB 없음")
-                usage_bio = 0       
-    
-        # 5. 최종 집계 차트
-        st.divider()
-        st.markdown("### 📊 일일 약품 사용량 예측 (Daily Consumption)")
-        
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric(f"주처리제 ({sel_inh})", f"{usage_inh:.1f} kg/day")
-        if disp_list: col_m2.metric(f"분산제 ({sel_disp})", f"{usage_disp:.1f} kg/day")
-        if bio_list: col_m3.metric(f"살균제 ({sel_bio})", f"{usage_bio:.1f} kg/day")
+                usage_bio = 0
 
-        # 그래프 그리기
+        # [7] 최종 차트
+        st.divider()
+        st.markdown("### 📊 일일 약품 사용량 예측")
         chart_df = pd.DataFrame({
             'Type': ['Inhibitor', 'Dispersant', 'Biocide'],
             'Usage': [usage_inh, usage_disp, usage_bio],
             'Product': [sel_inh, sel_disp if disp_list else '-', sel_bio if bio_list else '-']
         })
         
-        fig = px.bar(chart_df, x='Type', y='Usage', color='Type', text='Usage',
-                     hover_data=['Product'], title="약품별 일일 사용량 (kg)")
+        fig = px.bar(chart_df, x='Type', y='Usage', color='Type', text='Usage', hover_data=['Product'])
         fig.update_traces(texttemplate='%{text:.1f} kg', textposition='outside')
         fig.update_layout(height=300, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
