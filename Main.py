@@ -16,47 +16,190 @@ import numpy as np
 
 import re
 # ==============================================================================
-# [AI Deep Logic] 심층 약품 선정 및 진단 알고리즘 (Clean Ver)
+# [New Logic] 알칼리도(M-Alk) 기반 pH 예측 알고리즘 (업로드된 PDF 차트 반영)
 # ==============================================================================
-def get_cooling_deep_audit(lsi, rsi, cl_ion, so4, alk, ca_h, temp, holding_time, target_cl2, ph):
+def predict_ph_from_alkalinity(m_alk):
     """
-    [Ultimate Ver] 정상/주의/위험 모든 상태를 브리핑하는 리포트 생성기
-    (제목을 화면에 바로 찍지 않고 리스트에 담아서 반환함)
+    [pH & T-Alkalinity] 상관관계 그래프를 수식화한 함수
+    입력: 농축된 M-알칼리도 (ppm as CaCO3)
+    출력: 예상 평형 pH
+    """
+    # PDF 차트의 곡선을 데이터 포인트로 변환 (Standard Cooling Water Curve)
+    # (Alkalinity, pH) 좌표값
+    # 알칼리도가 높아질수록 pH 상승폭이 둔화되는 로그 곡선 형태
+    alk_points = [0,  20,  50,  100, 150, 200, 300, 400, 500, 600, 800, 1000]
+    ph_points  = [7.0, 7.2, 7.6, 8.0, 8.2, 8.3, 8.5, 8.7, 8.8, 8.9, 9.0, 9.1]
+    
+    # 선형 보간법(Interpolation)으로 pH 예측
+    if m_alk <= 0: return 7.0
+    predicted_ph = np.interp(m_alk, alk_points, ph_points)
+    
+    return float(predicted_ph)
+# ==============================================================================
+# [AI Deep Logic] 제안서 기반 맞춤형 진단 알고리즘 (Microbial & Field Data)
+# ==============================================================================
+def get_cooling_deep_audit(lsi, rsi, cl_ion, so4, alk, ca_h, temp, holding_time, target_cl2, ph, 
+                           measured_bacteria=0, srb_detected=False, measured_ph=0.0):
+    """
+    [Proposal Logic Ver] 실측 데이터(미생물, pH)와 예측 데이터(LSI)를 교차 분석하는 진단기
     """
     report = []
     
-    # 1. 체류시간(HT) 진단
-    report.append("#### 1. ⏱️ 체류시간(Holding Time) 안정성 진단")
+    # --------------------------------------------------------------------------
+    # 1. [Microbial Review] 미생물 측정 데이터 기반 살균제 선정
+    # --------------------------------------------------------------------------
+    report.append("#### 1. 🦠 미생물 측정 및 살균 프로그램 진단")
+    
+    bio_risk = False
+    if measured_bacteria > 10000: # 10^4 CFU/ml 기준
+        report.append(f"🚨 **[미생물 오염 심각]** 일반세균수가 **{measured_bacteria:,} CFU/mL**로 관리 기준(10,000)을 초과했습니다.")
+        report.append(f"✅ **[처방]** 슬라임 박리제(Bio-dispersant) 투입과 비산화성 살균제 **'충격 투입(Shock Dosing)'** 주기를 단축하십시오.")
+        bio_risk = True
+    elif srb_detected:
+        report.append(f"🧱 **[SRB(황산염환원균) 검출]** 배관 부식의 주원인인 SRB가 검출되었습니다.")
+        report.append(f"✅ **[처방]** SRB에 특화된 **'Isothiazoline'** 또는 **'Glutaraldehyde'** 계열 살균제를 즉시 처방하십시오.")
+    else:
+        report.append(f"✅ **[양호]** 미생물 상태가 관리 범위 이내입니다. 현재의 교차 투입(Dual Biocide) 프로그램을 유지하십시오.")
+
+    # --------------------------------------------------------------------------
+    # 2. [Water Quality Review] 실측 pH vs 설계 pH 비교
+    # --------------------------------------------------------------------------
+    if measured_ph > 0:
+        report.append("#### 2. 🔎 수질 데이터 Review (실측 vs 시뮬레이션)")
+        diff = measured_ph - ph
+        if abs(diff) > 0.5:
+             report.append(f"⚠️ **[pH 편차 발생]** 실측 pH({measured_ph})와 시뮬레이션 목표 pH({ph})의 차이가 큽니다.")
+             if measured_ph > ph:
+                 report.append(f"💡 **[진단]** 농축이 예상보다 높거나, 외부 알칼리 유입이 의심됩니다. **'전도도 제어(Bleed-off)'** 설정을 점검하십시오.")
+        else:
+             report.append(f"✅ **[일치]** 실측 수질이 설계 범위 내에서 안정적으로 유지되고 있습니다.")
+    
+    # --------------------------------------------------------------------------
+    # 1. 체류시간(Holding Time)에 따른 약품의 화학적 변화 예측
+    # --------------------------------------------------------------------------
+    report.append("#### 1. ⏱️ 체류시간(HT)과 약품의 수명(Life-cycle)")
     
     if holding_time > 48:
-        report.append(f"🐢 **[주의: 장기 체류]** 체류시간이 **{holding_time:.1f}시간**으로 깁니다. 약품이 분해(Reversion)되어 슬러지가 될 위험이 있습니다.")
-        if temp > 35 or target_cl2 > 0.5:
-             report.append(f"🚨 **[약품 분해 경고]** 고수온/산화제 환경입니다. 일반 스케일 방지제는 분해되어 **'인산칼슘 스케일'**이 됩니다. 고성능 폴리머가 필요합니다.")
+        report.append(f"🐢 **[장기 체류 경고]** 현재 체류시간은 **{holding_time:.1f}시간**입니다. 물이 시스템 내에 48시간 이상 머무르면 약품의 화학적 구조가 깨지기 시작합니다.")
+        report.append(f"⛔ **[HEDP 선정 금지]** 일반적인 **'HEDP'** 성분은 장시간 체류 시 가수분해(Hydrolysis)되어 **'정인산(Ortho-phosphate)'**으로 변질됩니다. 변질된 인산은 칼슘과 결합해 **'인산칼슘 스케일'**을 유발하므로 오히려 독이 됩니다.")
+        report.append(f"✅ **[필수 성분]** 시간이 지나도 구조가 유지되는 **'PBTC'** 또는 **'PMA / AA / AMPS'** 계열의 고성능 폴리머가 주성분인 제품을 선정하십시오.")
+        
     elif holding_time < 10:
-        report.append(f"💸 **[주의: 약품 손실]** 체류시간이 **{holding_time:.1f}시간**으로 너무 짧습니다. 연속 주입보다는 **'충격 투입(Shock Dosing)'**이 경제적입니다.")
-    else:
-        report.append(f"✅ **[안정적]** 체류시간({holding_time:.1f}hr)이 적절하여 약품 효율이 가장 좋은 구간입니다.")
-
-    # 2. 수질 평형(LSI) 진단
-    report.append("#### 2. ⚖️ 수질 평형(LSI) 및 스케일 경향")
+        report.append(f"💸 **[단기 체류 주의]** 체류시간이 **{holding_time:.1f}시간**으로 매우 짧습니다. 약품이 효과를 보기도 전에 배수(Blowdown)로 버려지고 있습니다.")
+        report.append(f"💡 **[운전 전략]** 고가(High-End)의 약품을 연속 주입하는 것은 비경제적입니다. 가성비가 좋은 표준 약품을 타이머로 **'충격 투입(Shock Dosing)'** 하여 순간 농도를 높이거나, 농축 배수를 올려 체류시간을 확보하십시오.")
     
-    if lsi > 2.8:
-        report.append(f"🔴 **[위험: 강한 스케일]** LSI {lsi:.2f}. 열교환기 막힘 위험이 큽니다. **'Terpolymer + HEDP'** 복합 처방이 필수입니다.")
+    else:
+        report.append(f"✅ **[안정적]** 체류시간({holding_time:.1f}hr)이 약품 효율 최적 구간(24~48hr)입니다. 표준적인 **'HEDP/PBTC 복합제'**를 선정하셔도 무방합니다.")
+
+    # --------------------------------------------------------------------------
+    # 2. LSI (스케일 강도)에 따른 분산제 배합 가이드
+    # --------------------------------------------------------------------------
+    report.append("#### 2. ⚖️ LSI 스케일 강도별 최적 성분 배합")
+    
+    if lsi > 2.5:
+        report.append(f"🔴 **[초고부하 스케일 (LSI {lsi:.2f})]** 탄산칼슘 포화도가 한계치를 넘어, 물속에서 결정(Crystal)이 폭발적으로 성장하려는 상태입니다.")
+        report.append(f"✅ **[고성능 분산제 필수]** 일반 인산염(Phosphonate)의 '임계 효과(Threshold Effect)'만으로는 부족합니다. 결정의 모양을 찌그러뜨려 성장을 멈추게 하는 **'Terpolymer(3원 공중합체)'**나 **'HPA'** 성분이 고농도로 함유된 제품이 아니면 배관이 막힙니다.")
+        
     elif lsi < 0:
-        report.append(f"🔵 **[위험: 부식성 수질]** LSI {lsi:.2f} (음수). 배관 부식 위험이 큽니다. **'Zinc/Polyphosphate'** 방식 프로그램이 필요합니다.")
-        if ph > 8.2:
-            report.append(f"⚠️ **[pH 주의]** pH {ph}에서는 아연(Zinc)이 침전될 수 있습니다. pH를 낮추거나 고성능 분산제를 병행하세요.")
+        report.append(f"🔵 **[부식성 수질 (LSI {lsi:.2f})]** 물이 미포화 상태라 배관의 금속 성분($Fe, Cu$)을 녹여내려 하고 있습니다. 스케일 방지보다는 부식 억제가 급선무입니다.")
+        report.append(f"✅ **[방식제 우선 선정]** 금속 표면에 보호막을 입히는 **'아연(Zinc)'** 또는 **'고농도 정인산(High Phosphate)'** 베이스의 제품을 선정하십시오.")
+        if ph > 8.3:
+             report.append(f"⚠️ **[Zn 사용 주의]** 단, pH 8.3 이상에서는 아연 자체가 **'수산화아연 슬러지'**가 되어 침전됩니다. 아연 제품을 쓰려면 **'산(Acid)'**을 병행하여 pH를 8.0 이하로 유지하거나, **'유기인계(All-Organic)'** 고농도 처리를 고려하십시오.")
+             
     else:
-        report.append(f"✅ **[안정적]** LSI {lsi:.2f}로 약품 처리에 최적화된 수질입니다.")
+        report.append(f"✅ **[표준 관리 범위]** LSI({lsi:.2f})가 적정합니다. 경제성을 고려하여 **'Phosphonate(인산염) + Polymer'**의 표준 스케일 방지제를 선정하십시오.")
 
-    # 3. 약품 내성 진단
-    report.append("#### 3. 🧪 화학적/미생물적 제한 요소")
+    # --------------------------------------------------------------------------
+    # 3. 특수 수질 인자(염소, 황산염) 대응 전략
+    # --------------------------------------------------------------------------
+    report.append("#### 3. 🧪 잔류염소 및 특수 이온 대응")
     
-    if target_cl2 >= 0.8:
-        report.append(f"🔥 **[염소 내성 경고]** 목표 잔류 염소({target_cl2}ppm)가 높습니다. 일반 HEDP는 분해되므로 **'PBTC'**를 사용하십시오.")
+    # (1) 염소 내성
+    if target_cl2 >= 0.5:
+        report.append(f"🔥 **[산화제 과다 (Cl2 {target_cl2}ppm)]** 살균력을 높이기 위해 염소 농도를 높게 유지하는 현장입니다.")
+        report.append(f"⛔ **[HEDP 사용 불가]** HEDP 분자는 염소(산화제)를 만나면 C-P 결합이 끊어져 분해됩니다. 약품 농도를 유지할 수 없습니다.")
+        report.append(f"✅ **[내염소성 성분]** 염소 공격에도 구조가 파괴되지 않는 **'PBTC'** 성분이 베이스인 제품을 선정해야만 스케일 방지 효과를 볼 수 있습니다.")
     
-    if holding_time > 48 and temp > 30:
-        report.append(f"🦠 **[미생물 경고]** 수온 상승 및 물 고임 현상으로 바이오필름 폭증 조건입니다. 살균제를 증량하십시오.")
+    # (2) 황산염 (CaSO4)
+    if so4 > 1000:
+        report.append(f"🧱 **[황산염 스케일 위험]** 황산이온({so4}ppm)이 높아 탄산칼슘보다 10배 더 단단한 **'석고(Gypsum)'** 스케일이 생성될 수 있습니다.")
+        report.append(f"✅ **[전용 분산제]** 일반 폴리머로는 제어가 어렵습니다. 황산염 스케일에 특화된 **'Copolymer (AA/AMPS)'** 성분이 보강된 제품인지 반드시 확인하십시오.")
+        
+    # (3) 염소이온 (부식)
+    if cl_ion > 300:
+        report.append(f"⚠️ **[공식(Pitting) 경고]** 염소이온({cl_ion}ppm)은 스테인리스와 동관의 보호피막을 국소적으로 뚫어버립니다.")
+        report.append(f"✅ **[아졸 강화]** 구리/동관 부식 방지제인 **'Azole (BZT/TT)'** 성분이 일반 제품보다 고농도(2ppm 유지 가능)로 배합된 제품을 선택하십시오.")
+
+    return report
+# ==============================================================================
+# [AI Deep Logic] 보일러 심층 진단 알고리즘 (Expert Ver)
+# ==============================================================================
+def get_boiler_deep_audit(pressure, hardness, cond_ph, tds, iron, silica):
+    """
+    [Boiler Audit] 압력 및 응축수 조건을 분석하여 최적의 청관제/탈산제 선정 가이드 제시
+    """
+    report = []
+    
+    # 1. 압력(Pressure) 기반 탈산제 선정
+    report.append("#### 1. 🔥 운전 압력에 따른 탈산제(Oxygen Scavenger) 선정")
+    if pressure < 20:
+        report.append(f"✅ **[저압 보일러 ({pressure}bar)]** 반응 속도가 빠른 **'Sulfite(아황산나트륨)'** 계열이 가장 경제적이고 효과적입니다.")
+    elif pressure >= 40:
+        report.append(f"🚨 **[고압 주의 ({pressure}bar)]** 고압에서 아황산염(Sulfite)을 쓰면 분해되어 $SO_2, H_2S$ 부식 가스를 만듭니다.")
+        report.append(f"⛔ **[Sulfite 금지]** 반드시 고형분이 남지 않는 **'Hydrazine'** 대체재(DEHA, Carbohydrazide)나 **'All-Volatile'** 약품을 선정하십시오.")
+    else:
+        report.append(f"⚠️ **[중압 보일러 ({pressure}bar)]** Sulfite 사용이 가능하나, TDS 관리가 중요합니다. 가급적 **'유기 탈산제(DEHA)'** 사용을 권장합니다.")
+
+    # 2. 경도(Hardness) 누출 및 스케일 제어
+    report.append("#### 2. 🧱 경도 누출(Leak) 대응 및 스케일 제어")
+    if hardness > 0.5:
+        report.append(f"🚨 **[경도 누출 경고]** 급수 경도가 **{hardness}ppm**으로 감지됩니다. 연수장치 파과(Breakthrough)가 의심됩니다.")
+        report.append(f"✅ **[필수 처방]** 튜브 파열을 막으려면, 경도 성분을 진흙(Sludge)으로 만들어 배출시키는 **'PO4(인산염) + Polymer'** 복합 청관제를 과량 투입해야 합니다.")
+    else:
+        report.append(f"✅ **[수질 양호]** 경도 누출이 없습니다. 청관 효율을 높이기 위해 **'All-Polymer(분산제 전용)'** 또는 **'Phosphate'** 프로그램을 표준대로 유지하십시오.")
+
+    # 3. 응축수(Condensate) 부식 제어
+    report.append("#### 3. 💧 응축수 회수 라인 부식 진단")
+    if cond_ph < 7.5:
+        report.append(f"🔥 **[산성 부식 위험]** 응축수 pH가 **{cond_ph}**로 낮습니다. 탄산($CO_2$) 가스에 의해 배관이 녹아 **'철분({iron}ppm)'**이 보일러로 유입되고 있습니다.")
+        report.append(f"✅ **[필수 처방]** 증기와 함께 날아가서 배관 끝단까지 pH를 높여주는 **'중화 아민(Neutralizing Amine)'** 투입이 시급합니다.")
+    else:
+        report.append(f"✅ **[양호]** 응축수 pH({cond_ph})가 적절하게 유지되어 배관 부식 위험이 낮습니다.")
+
+    return report
+# ==============================================================================
+# [AI Deep Logic] RO(역삼투) 심층 진단 알고리즘 (Expert Ver)
+# ==============================================================================
+def get_ro_deep_audit(lsi_brine, silica_brine, sdi, recovery, ph_brine):
+    """
+    [RO Audit] 농축수(Brine) 수질을 기준으로 스케일 방지제 및 전처리 가이드 제시
+    """
+    report = []
+    
+    # 1. LSI (탄산칼슘 스케일) 진단
+    report.append("#### 1. ⚖️ LSI 농축수 스케일 강도 진단")
+    if lsi_brine > 2.0:
+        report.append(f"🔴 **[강한 스케일 (LSI {lsi_brine:.2f})]** 산(Acid) 주입만으로는 막힘을 막을 수 없습니다.")
+        report.append(f"✅ **[필수 처방]** 탄산칼슘 결정 성장을 억제하는 **'High-Performance Antiscalant (Dendritic Polymer)'** 제품을 선정하십시오.")
+    elif lsi_brine > 1.0:
+        report.append(f"⚠️ **[스케일 주의 (LSI {lsi_brine:.2f})]** 일반적인 **'Phosphonate(인산염)'** 계열 스케일 방지제 사용이 필요합니다.")
+    else:
+        report.append(f"✅ **[안정]** LSI({lsi_brine:.2f})가 낮아 스케일 위험이 적습니다. 소량의 방지제로도 운전 가능합니다.")
+
+    # 2. 실리카(Silica) 중합 위험 진단
+    report.append("#### 2. 💎 실리카(Silica) 스케일 위험성")
+    if silica_brine > 150:
+        report.append(f"🚨 **[실리카 경고]** 농축수 실리카가 **{silica_brine:.1f}ppm**입니다. (용해도 한계 120ppm 초과)")
+        report.append(f"⛔ **[일반 약품 금지]** 일반 스케일 방지제는 실리카를 막지 못합니다. 반드시 **'Silica-Specific Dispersant'**가 함유된 전용 약품을 써야 합니다.")
+        report.append(f"💡 **[운전 팁]** 약품으로 한계가 있다면 **'회수율(Recovery)'**을 {recovery}%보다 낮춰 실리카 농도를 떨어뜨려야 합니다.")
+    else:
+        report.append(f"✅ **[양호]** 실리카 농도({silica_brine:.1f}ppm)가 용해도 범위 이내입니다.")
+
+    # 3. 입자성 오염(SDI) 및 미생물
+    report.append("#### 3. 🌫️ 전처리(Pre-treatment) 효율 진단")
+    if sdi > 4.0:
+        report.append(f"🔥 **[파울링 경고]** SDI가 **{sdi}**로 높습니다. 멤브레인 표면에 진흙/입자가 쌓이고 있습니다.")
+        report.append(f"✅ **[처방]** 스케일 방지제 외에, 전단에 **'응집제(Coagulant)'** 투입을 검토하거나 마이크로필터(MF) 교체 주기를 확인하십시오.")
 
     return report
 # ==============================================================================
@@ -622,15 +765,11 @@ if "Cooling" in program_mode:
                 cycle_alk = base_alk * target_coc
                 if cycle_alk < 1: cycle_alk = 1.0
                 
-                alk_threshold = 370.0 
-                if cycle_alk < alk_threshold:
-                    est_ph_raw = (2.0 * math.log10(cycle_alk)) + 3.15
-                    phase_msg = "Bicarbonate Phase (pH < 8.3)"
-                else:
-                    est_ph_raw = (1.465 * math.log10(cycle_alk)) + 4.54
-                    phase_msg = "Carbonate Buffer Phase (pH ≥ 8.3)"
+                # 🟢 [수정 완료] PDF 차트 기반 함수 호출
+                est_ph = predict_ph_from_alkalinity(cycle_alk)
+                phase_msg = "AI Prediction (Chart Logic)"
 
-                est_ph = min(est_ph_raw, 9.3)
+                # 결과 표시
                 target_ph = st.number_input(f"Predicted pH ({phase_msg})", value=float(f"{est_ph:.2f}"), disabled=True)
             
             # [버튼] 실행
@@ -801,7 +940,7 @@ if "Cooling" in program_mode:
             mu_alk = res['mu_dict']['M-Alk (ppm)']
             temp_c = st.session_state.sim_temp
             
-            # 2. 시뮬레이션 루프 (2.0 ~ 10.0배)
+# 2. 시뮬레이션 루프 (2.0 ~ 10.0배)
             cycles_range = np.arange(2.0, 10.5, 0.5)
             sim_data = []
 
@@ -811,17 +950,16 @@ if "Cooling" in program_mode:
                 pred_alk_c = mu_alk * coc
                 if pred_alk_c < 1: pred_alk_c = 1
                 
-                # pH 예측 (Buffer 구간 반영 모델)
-                if pred_alk_c < 370:
-                    pred_ph_c = (2.0 * math.log10(pred_alk_c)) + 3.15
-                else:
-                    pred_ph_c = (1.465 * math.log10(pred_alk_c)) + 4.54
-                if pred_ph_c > 9.3: pred_ph_c = 9.3 # 최대 상한
+                # ----------------------------------------------------------
+                # [수정된 부분] 기존의 긴 pH 계산식을 지우고 함수 호출로 대체
+                # ----------------------------------------------------------
+                pred_ph_c = predict_ph_from_alkalinity(pred_alk_c)
+                # ----------------------------------------------------------
 
                 pred_tds_c = mu_cond * coc * 0.7
                 pred_ca_c = mu_ca * coc
 
-                # (B) LSI 계산
+                # (B) LSI 계산 (수정 없음)
                 val_a = (math.log10(max(pred_tds_c, 1)) - 1) / 10
                 val_b = -13.12 * math.log10(temp_c + 273.15) + 34.55
                 val_c = math.log10(max(pred_ca_c, 1)) - 0.4
@@ -830,7 +968,7 @@ if "Cooling" in program_mode:
                 pHs_c = (9.3 + val_a + val_b) - (val_c + val_d)
                 lsi_c = pred_ph_c - pHs_c
                 
-                # (C) PSI 계산 (Puckorius Scaling Index)
+                # (C) PSI 계산 (수정 없음)
                 p_eq_c = 1.465 * math.log10(max(pred_alk_c, 1)) + 4.54
                 psi_c = (2 * pHs_c) - p_eq_c
 
@@ -915,19 +1053,17 @@ if "Cooling" in program_mode:
                 * **철분 (Fe):** `> 1.0 ppm` 시 배관 부식 진행 중이거나 원수 오염 의심.
                 """)
 # ======================================================================
-    # Tab 3: Chemical Program (약품 선정) - Layout Optimized Ver
+    # Tab 3: Chemical Program (약품 선정) - 잔류염소 입력 기능 추가
     # ======================================================================
     with tab3:
         st.subheader("3. Intelligent Chemical Selection System")
-        st.markdown("수질 분석 및 스케일 경향에 따른 **최적 약품(Inhibitor/Biocide)**을 선정합니다.")
+        st.markdown("수질/미생물 분석 및 스케일 경향에 따른 **최적 약품(Inhibitor/Biocide)**을 선정합니다.")
 
         # ------------------------------------------------------------------
         # [1] 데이터 가져오기 (Tab 1, 2와 연동)
         # ------------------------------------------------------------------
         if st.session_state.get('run_simulation') and 'sim_results' in st.session_state:
             sim = st.session_state.sim_results
-            
-            # 수질 데이터
             real_lsi = sim.get('lsi', 1.5)
             real_rsi = sim.get('rsi', 6.0)
             real_cl = sim.get('Cl (ppm)', 100.0)
@@ -944,32 +1080,51 @@ if "Cooling" in program_mode:
                 real_ht = sys_vol_val / bd_rate if bd_rate > 0 else 48.0
             except:
                 real_ht = 48.0
-            
             data_status = "✅ 시뮬레이션 데이터 연동됨"
         else:
-            # 기본값
             real_lsi, real_rsi = 2.0, 5.0
             real_cl, real_so4 = 150.0, 80.0
             real_alk, real_ca = 100.0, 200.0
             real_ph, real_temp = 8.2, 30.0
             real_ht = 24.0
             data_status = "⚠️ 기본값 (시뮬레이션 미실행)"
-
-        if 'target_cl2' not in locals(): target_cl2 = 0.5 
+# ------------------------------------------------------------------
+        # [NEW] 현장 측정 데이터 입력 (Field Data Input) - 제안서 로직 구현
+        # ------------------------------------------------------------------
+        with st.expander("🔎 **[현장 진단] 수질 및 미생물 측정값 입력 (Optional)**", expanded=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+            with f_col1:
+                target_cl2 = st.number_input("잔류염소 (ppm)", value=0.2, step=0.1, help="운전 관리 기준")
+            with f_col2:
+                meas_bacteria = st.number_input("일반세균 (CFU/mL)", value=0, step=1000, help="최근 측정된 세균수")
+            with f_col3:
+                meas_srb = st.checkbox("SRB(황산염환원균) 검출", help="검출 시 체크")
+            with f_col4:
+                meas_ph = st.number_input("실측 pH", value=0.0, step=0.1, help="현장 측정 pH (비교용)")
+        # ------------------------------------------------------------------
+        # [NEW] ★ 잔류염소 관리 목표 입력창 추가 ★ (여기가 핵심입니다!)
+        # ------------------------------------------------------------------
+        col_set1, col_set2 = st.columns([1, 2])
+        with col_set1:
+            # 기본값을 0.2로 낮춰서 불필요한 경고 방지
+            target_cl2 = st.number_input("운전 관리 잔류염소 (ppm)", value=0.2, step=0.1, 
+                                       help="살균을 위해 유지할 잔류염소 농도입니다. 0.5ppm 이상이면 HEDP 분해 경고가 뜹니다.")
+        with col_set2:
+            st.info(f"💡 현재 설정된 잔류염소 농도는 **{target_cl2} ppm** 입니다. (0으로 설정 시 경고 해제)")
 
         # ------------------------------------------------------------------
         # [2] AI 심층 진단 함수 호출
         # ------------------------------------------------------------------
         audit_logs = get_cooling_deep_audit(
             real_lsi, real_rsi, real_cl, real_so4, real_alk, 
-            real_ca, real_temp, real_ht, target_cl2, real_ph
+            real_ca, real_temp, real_ht, target_cl2, real_ph,
+            meas_bacteria, meas_srb, meas_ph  #
         )
 
         # ------------------------------------------------------------------
-        # [3] 진단 리포트 출력 (제목과 내용을 예쁘게 구분)
+        # [3] 진단 리포트 출력
         # ------------------------------------------------------------------
-        st.info(f"🤖 **AI Engineer's Insight:** {data_status}")
-        
+        st.markdown("---")
         with st.expander("📋 **[클릭] 약품 선정 전 심층 분석 보고서**", expanded=True):
             for log in audit_logs:
                 if log.startswith("####"):
@@ -982,9 +1137,9 @@ if "Cooling" in program_mode:
                     st.success(log)
                 else:
                     st.write(log)
-        
-        # ------------------------------------------------------------------
-        # [4] 약품 DB 로드 및 추천 로직 (위치 이동: 보고서 바로 아래)
+
+# ------------------------------------------------------------------
+        # [4] 스마트 제품 매칭 & 추천 사유 (High Polymer 전략 반영)
         # ------------------------------------------------------------------
         cooling_db = PRODUCT_CATALOG.get('Cooling', {})
         inh_list = cooling_db.get('Main_Inhibitor', [])
@@ -995,33 +1150,52 @@ if "Cooling" in program_mode:
             st.error("🚨 약품 DB 로드 실패")
             st.stop()
 
-        # [AI 추천 알고리즘 계산]
+        # [통합 매칭 로직]
         rec_prod_name = inh_list[0]['Name']
-        rec_reason = "기본 추천" # 초기화
+        rec_reason = "기본 추천"
 
-        if real_lsi > 2.5:
+        # 1순위: 잔류염소 내성 (가장 치명적인 조건)
+        if target_cl2 >= 0.5:
+            match = next((p for p in inh_list if "180" in p['Name'] or "PBTC" in str(p.get('Main_Ingredient',''))), None)
+            if match:
+                rec_prod_name = match['Name']
+                rec_reason = f"🔥 **염소 내성 강화:** 설정하신 잔류염소({target_cl2}ppm)가 높아 산화에 강한 **PBTC** 제품을 선정했습니다."
+        
+        # 2순위: 고부하 스케일 (LSI > 2.5)
+        elif real_lsi > 2.5:
             match = next((p for p in inh_list if "308" in p['Name'] or "524" in p['Name']), None)
             if match: 
                 rec_prod_name = match['Name']
-                rec_reason = f"🔴 **고부하 (LSI {real_lsi:.2f}):** 스케일 강도가 매우 높습니다. 고성능 폴리머 복합제가 필요합니다."
-        elif 1.5 <= real_lsi <= 2.5:
+                rec_reason = f"🔴 **고부하 대응:** LSI({real_lsi:.2f})가 매우 높아 강력한 **Terpolymer** 복합제를 선정했습니다."
+        
+        # 3순위: 부식성 수질 (LSI < 0.5) -> 여기가 핵심 수정 부분!
+        elif real_lsi < 0.5:
+            # 일단 아연(Zinc) 제품을 찾습니다.
+            match = next((p for p in inh_list if "110" in p['Name'] or "Zinc" in str(p.get('Main_Ingredient',''))), None)
+            
+            if match:
+                rec_prod_name = match['Name']
+                
+                # [Condition] pH가 높은가? (8.2 초과)
+                if real_ph > 8.2:
+                    rec_reason = f"⚠️ **pH 주의 ({real_ph:.1f}):** pH가 높아 아연 슬러지 발생 위험이 있습니다. 하지만 **'분산제(Polymer)' 함량이 높은 제품**을 선정하면 아연을 안정화하여 사용 가능합니다."
+                else:
+                    rec_reason = f"🔵 **방식 처리:** 저경도/부식성 수질(LSI {real_lsi:.2f})이므로 **아연(Zinc)** 함유 방식제를 선정했습니다."
+        
+        # 4순위: 표준 관리 범위 (0.5 <= LSI <= 2.5)
+        else:
             match = next((p for p in inh_list if "180" in p['Name'] or "308" in p['Name']), None)
             if match:
                 rec_prod_name = match['Name']
-                rec_reason = f"🟢 **표준 관리 범위 (LSI {real_lsi:.2f}):** 경제적인 표준 인산염계 제품이 적합합니다."
-        else: # LSI < 1.5
-            match = next((p for p in inh_list if "Zinc" in str(p.get('Main_Ingredient','')) or "110" in p['Name']), None)
-            if match:
-                rec_prod_name = match['Name']
-                rec_reason = f"🔵 **부식성 수질 (LSI {real_lsi:.2f}):** 방식 효과가 뛰어난 아연(Zinc) 함유 제품을 추천합니다."
+                rec_reason = f"🟢 **표준 관리:** LSI({real_lsi:.2f})가 적정 관리 범위(0.5~2.5)입니다. 경제성과 효율 밸런스가 좋은 **표준 인산염계** 제품을 선정했습니다."
 
-        # [★위치 변경됨★] 추천 사유 박스 출력 (보고서 바로 아래)
+        # 추천 사유 출력
         st.success(f"🧬 **냉각수 약품 추천 사유:** {rec_reason}")
-
+        
         st.divider()
 
         # ------------------------------------------------------------------
-        # [5] 배수량 연동 및 입력 (중간 배치)
+        # [5] 배수량 연동
         # ------------------------------------------------------------------
         if 'final_blowdown' in st.session_state and st.session_state['final_blowdown'] > 0:
             calc_blow = st.session_state['final_blowdown']
@@ -1043,15 +1217,14 @@ if "Cooling" in program_mode:
             st.info(f"📊 **수질 요약:** LSI `{real_lsi:.2f}` / pH `{real_ph:.1f}` / 염소 `{real_cl:.0f} ppm`")
 
         # ------------------------------------------------------------------
-        # [6] 약품 선택 UI (선택창 내부의 중복 추천 메시지 삭제함)
+        # [6] 약품 선택 UI
         # ------------------------------------------------------------------
         c_sel1, c_sel2, c_sel3 = st.columns(3)
 
-        # [A] 억제제 (Inhibitor)
+        # [A] 억제제
         with c_sel1:
             st.markdown("#### 🛡️ 주처리제 (Inhibitor)")
             inh_names = [p['Name'] for p in inh_list]
-            # 추천 제품을 기본값으로 자동 선택
             def_idx = inh_names.index(rec_prod_name) if rec_prod_name in inh_names else 0
             sel_inh = st.selectbox("제품 선택", inh_names, index=def_idx, key="sel_inh_fix")
             sel_inh_data = next((p for p in inh_list if p['Name'] == sel_inh), None)
@@ -1062,12 +1235,10 @@ if "Cooling" in program_mode:
                 st.markdown(f"**💡 특징:** :blue[{sel_inh_data.get('Sales_Point', '-')}]")
                 if sel_inh_data.get('Field_Tip') != '-':
                     st.markdown(f"**🔧 Tip:** :green[{sel_inh_data.get('Field_Tip')}]")
-                
-                # [삭제됨] 여기에 있던 st.success("AI 추천 사유...")는 위쪽으로 이동했으므로 삭제.
             
             usage_inh = (estim_blow * 24 * inh_dose) / 1000.0
 
-        # [B] 분산제 (Dispersant)
+        # [B] 분산제
         with c_sel2:
             st.markdown("#### 🧪 분산제 (Dispersant)")
             if disp_list:
@@ -1084,7 +1255,7 @@ if "Cooling" in program_mode:
                 st.warning("DB 없음")
                 usage_disp = 0
 
-        # [C] 살균제 (Biocide)
+        # [C] 살균제
         with c_sel3:
             st.markdown("#### 🦠 살균제 (Biocide)")
             if bio_list:
@@ -1101,7 +1272,7 @@ if "Cooling" in program_mode:
                 st.warning("DB 없음")
                 usage_bio = 0
 
-        # [7] 최종 차트
+        # [7] 차트
         st.divider()
         st.markdown("### 📊 일일 약품 사용량 예측")
         chart_df = pd.DataFrame({
