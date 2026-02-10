@@ -302,8 +302,9 @@ if not st.session_state.authenticated:
     if st.button("로그인"):
         # 👇 [수정 가능] 원하는 비밀번호로 바꾸세요 (예: parker2024)
         if password_input == "1234":  
-            st.session_state.authenticated = True
-            st.rerun()  # 화면을 새로고침해서 앱을 보여줌
+            st.warning("🚧 현재 서버 안정화 및 로직 업데이트 작업으로 인해 로그인이 일시 제한됩니다. (예정: 17:00 완료)")
+            # st.session_state.authenticated = True  # 이 줄을 주석 처리하면 로그인이 안 됩니다.
+            # st.rerun()
         else:
             st.error("❌ 비밀번호가 틀렸습니다. 다시 시도하세요.")
             
