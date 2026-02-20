@@ -53,10 +53,12 @@ def app(PRODUCT_CATALOG):
 
     with tab1:
         st.subheader("Step 1. Smart Water Analysis & Auto-Balancing")
+        st.info("💡 **[AI Auto-Balancing 활성화]** 입력된 전도도(Cond) 수치를 바탕으로 누락된 나트륨(Na)과 염소(Cl)를 자동 계산하여 **100% 완벽한 이온 밸런스**를 맞춥니다.")
         col_input, col_result = st.columns([1, 1.2])
         with col_input:
             st.markdown("###### 📝 필수 측정 항목")
             df_edit = st.data_editor(st.session_state.ro_v26_data, hide_index=True)
+            val_cond = df_edit.loc[df_edit['항목'] == 'Cond (µS)', '농도 (mg/L)'].values[0]
             val_ca = df_edit.loc[df_edit['항목'] == 'Ca', '농도 (mg/L)'].values[0]
             val_cl = df_edit.loc[df_edit['항목'] == 'Cl', '농도 (mg/L)'].values[0]
             val_alk = df_edit.loc[df_edit['항목'] == 'M-Alk', '농도 (mg/L)'].values[0]
@@ -64,9 +66,55 @@ def app(PRODUCT_CATALOG):
             val_so4 = df_edit.loc[df_edit['항목'] == 'SO4', '농도 (mg/L)'].values[0]
             val_fe = df_edit.loc[df_edit['항목'] == 'Fe', '농도 (mg/L)'].values[0]
 
+            # --- AI 이온 밸런스 보정 엔진 ---
+            val_mg = 10.0; val_k = 5.0
+            
+            # 1. 음이온 기준으로 필요 Na(나트륨) 1차 산출
+            meq_an = (val_alk/50.0) + (val_cl/35.45) + (val_so4/48.03)
+            meq_cat_no_na = (val_ca/20.04) + (val_mg/12.15) + (val_k/39.10)
+            val_na = max(0.0, (meq_an - meq_cat_no_na) * 22.99)
+            
+            # 2. 전도도(Cond) 기반 TDS 타겟과 비교하여 부족분을 NaCl로 채우기
+            current_tds = val_ca + val_mg + val_k + val_na + val_cl + (val_alk*1.22) + val_so4 + val_sio2 + val_fe
+            target_tds = val_cond * 0.65
+            
+            if target_tds > current_tds + 10:
+                diff_mg = target_tds - current_tds
+                added_meq = diff_mg / (22.99 + 35.45)
+                val_na += added_meq * 22.99
+                val_cl += added_meq * 35.45
+            elif target_tds < current_tds - 50:
+                st.warning("⚠️ **입력 주의:** 입력된 이온들의 총량이 전도도(Cond) 대비 너무 높습니다. 전도도 값을 상향 수정해주세요.")
+                
+            # 최종 이온 밸런스 확인
+            bal_res = ion_balance(val_ca, val_mg, val_na, val_k, val_alk, val_cl, val_so4)
+            sum_cat = bal_res['sum_cation']
+            sum_an = bal_res['sum_anion']
+            total_meq = sum_cat + sum_an
+            err_pct = abs(sum_cat - sum_an) / total_meq * 100 if total_meq > 0 else 0
+
         with col_result:
+            st.markdown("##### ⚖️ 이온 밸런스 검증 (Ion Balance)")
+            with st.container(border=True):
+                c_ib1, c_ib2, c_ib3 = st.columns(3)
+                c_ib1.metric("양이온(+) 합계", f"{sum_cat:.2f} meq/L")
+                c_ib2.metric("음이온(-) 합계", f"{sum_an:.2f} meq/L")
+                if err_pct < 5.0:
+                    c_ib3.metric("오차율 (Error)", f"{err_pct:.1f} %", "✅ 신뢰성 완벽")
+                else:
+                    c_ib3.metric("오차율 (Error)", f"{err_pct:.1f} %", "🚨 데이터 불균형", delta_color="inverse")
+
             st.markdown("###### 📊 최종 수질 분석 결과")
-            v_main = { 'Ca': val_ca, 'Mg': 10.0, 'Na': 150.0, 'K': 5.0, 'HCO3': val_alk * 1.22, 'Cl': val_cl, 'SO4': val_so4, 'SiO2': val_sio2, 'Fe': val_fe }
+            v_main = { 'Ca': val_ca, 'Mg': val_mg, 'Na': val_na, 'K': val_k, 'HCO3': val_alk * 1.22, 'Cl': val_cl, 'SO4': val_so4, 'SiO2': val_sio2, 'Fe': val_fe }
+            
+            # 다른 탭에서 쓸 수 있도록 Session State에 정밀 데이터 저장
+            st.session_state['ro_ion_dict'] = {
+                'Ca': val_ca, 'Mg': val_mg, 'Na': val_na, 'K': val_k,
+                'NH4': 0.0, 'HCO3': val_alk * 1.22, 'Cl': val_cl,
+                'SO4': val_so4, 'NO3': 0.0, 'NO2': 0.0,
+                'SiO2': val_sio2, 'Fe': val_fe, 'Al': 0.0,
+                'pH': in_ph, 'Ba': 0.0, 'Sr': 0.0, 'F': 0.0
+            }
             
             # [전문가 설계 적용] 기존 ro_concentration 호출을 Wrapper로 전면 교체
             conc_result = run_ro_calculation_safe(in_rec, in_ph, in_temp, v_main)
