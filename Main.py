@@ -24,7 +24,7 @@ if not st.session_state.authenticated:
     st.markdown("### 🔒 관계자 외 출입금지")
     password_input = st.text_input("접속 비밀번호를 입력하세요:", type="password")
     if st.button("로그인"):
-        if password_input == "1234":  
+        if password_input == "2356":  
             st.session_state.authenticated = True
             st.rerun()
         else:
