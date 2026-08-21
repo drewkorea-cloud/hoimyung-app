@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import math
-from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit, COND_TO_TDS_FACTOR
+from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit, COND_TO_TDS_FACTOR, calculate_larson_skold
 def interpolate(value, x_min, x_max, y_min, y_max):
     """구간 내 선형 보간 함수 (Linear Interpolation)"""
     if value <= x_min: return y_min
@@ -229,7 +229,7 @@ def app(PRODUCT_CATALOG):
                 rsi = (2 * pHs) - target_ph
                 p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
                 psi = (2 * pHs) - p_eq
-                ls_idx = (pred_cl + pred_so4) / pred_alk if pred_alk > 0 else 0
+                ls_idx = calculate_larson_skold(pred_cl, pred_so4, pred_alk)
                 st.session_state.sim_results = {
                     'mu_dict': mu_dict, 'pred_ca': pred_ca, 'pred_alk': pred_alk, 'pred_cl': pred_cl, 'pred_so4': pred_so4, 'pred_sio2': pred_sio2,
                     'pred_fe': pred_fe, 'pred_turb': pred_turb, 'pred_cond': pred_cond, 'target_ph': target_ph,

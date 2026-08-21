@@ -156,6 +156,15 @@ def calculate_lsi(ph, tds, ca, alk, temp):
     except (ValueError, TypeError):
         return 0.0
 
+# Larson-Skold Index (점부식 경향 지수) — ppm이 아닌 당량(epm) 기준으로 계산해야 함.
+# Cl-/SO4는 각자의 당량무게(35.45/48.03)로, Alk(as CaCO3)는 50으로 나눠 meq/L로 맞춘 뒤 비율을 구한다.
+def calculate_larson_skold(cl_ppm, so4_ppm, alk_ppm):
+    if alk_ppm <= 0: return 0.0
+    epm_cl = cl_ppm / 35.45
+    epm_so4 = so4_ppm / 48.03
+    epm_alk = alk_ppm / 50.0
+    return (epm_cl + epm_so4) / epm_alk
+
 # [엔진 2] 보일러 전문가 엔진 (안토인 식 적용 Ver)
 class Boiler_Expert_Engine:
     @staticmethod
@@ -176,12 +185,14 @@ class Boiler_Expert_Engine:
 
     @staticmethod
     def check_asme_standard(pressure_bar, tds, silica, alk):
-        limit_tds, limit_sio2, limit_alk = 3000, 150, 500
-        if pressure_bar <= 20: limit_tds, limit_sio2, limit_alk = 3500, 150, 700
-        elif pressure_bar <= 30: limit_tds, limit_sio2, limit_alk = 3000, 90, 600
-        elif pressure_bar <= 40: limit_tds, limit_sio2, limit_alk = 2500, 40, 500
-        elif pressure_bar <= 60: limit_tds, limit_sio2, limit_alk = 2000, 20, 400
-        else: limit_tds, limit_sio2, limit_alk = 1500, 8, 200
+        # ABMA/ASME 권장 보일러수 기준표 대조 결과 Alkalinity 값이 전 구간 2배로 잘못 들어가 있어 실제 기준으로 수정
+        # (TDS/SiO2는 원 표와 일치하여 그대로 유지)
+        limit_tds, limit_sio2, limit_alk = 3000, 150, 250
+        if pressure_bar <= 20: limit_tds, limit_sio2, limit_alk = 3500, 150, 350
+        elif pressure_bar <= 30: limit_tds, limit_sio2, limit_alk = 3000, 90, 300
+        elif pressure_bar <= 40: limit_tds, limit_sio2, limit_alk = 2500, 40, 250
+        elif pressure_bar <= 60: limit_tds, limit_sio2, limit_alk = 2000, 20, 150
+        else: limit_tds, limit_sio2, limit_alk = 1500, 8, 100
 
         msgs = []
         if tds > limit_tds: msgs.append(f"🔴 전도도 초과 (기준 {limit_tds})")
