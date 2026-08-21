@@ -9,7 +9,8 @@ from utils.calculations import (
     ion_balance,
     ro_concentration,
     osmotic_pressure,
-    calculate_ro_lsi
+    calculate_ro_lsi,
+    COND_TO_TDS_FACTOR
 )
 
 # [RO SAFE WRAPPER] 전문가님 설계안 반영하여 TypeError 원천 차단
@@ -33,8 +34,8 @@ def run_ro_calculation_safe(in_rec, in_ph, in_temp, v_main):
 def app(PRODUCT_CATALOG):
     if 'ro_v26_data' not in st.session_state:
         st.session_state.ro_v26_data = pd.DataFrame({
-            '항목': ['pH', 'Cond (µS)', 'Ca', 'Cl', 'M-Alk', 'Fe', 'SiO2', 'SO4'],
-            '농도 (mg/L)': [7.5, 1000.0, 80.0, 150.0, 200.0, 0.1, 15.0, 0.0]
+            '항목': ['pH', 'Cond (µS)', 'Ca', 'Mg', 'K', 'Cl', 'M-Alk', 'Fe', 'SiO2', 'SO4'],
+            '농도 (mg/L)': [7.5, 1000.0, 80.0, 10.0, 5.0, 150.0, 200.0, 0.1, 15.0, 0.0]
         })
 
     st.title("🌊 RO Master Pro (Smart Operations)")
@@ -65,10 +66,11 @@ def app(PRODUCT_CATALOG):
             val_sio2 = df_edit.loc[df_edit['항목'] == 'SiO2', '농도 (mg/L)'].values[0]
             val_so4 = df_edit.loc[df_edit['항목'] == 'SO4', '농도 (mg/L)'].values[0]
             val_fe = df_edit.loc[df_edit['항목'] == 'Fe', '농도 (mg/L)'].values[0]
+            val_mg = df_edit.loc[df_edit['항목'] == 'Mg', '농도 (mg/L)'].values[0]
+            val_k = df_edit.loc[df_edit['항목'] == 'K', '농도 (mg/L)'].values[0]
 
             # --- AI 이온 밸런스 보정 엔진 ---
-            val_mg = 10.0; val_k = 5.0
-            
+
             # 1. 음이온 기준으로 필요 Na(나트륨) 1차 산출
             meq_an = (val_alk/50.0) + (val_cl/35.45) + (val_so4/48.03)
             meq_cat_no_na = (val_ca/20.04) + (val_mg/12.15) + (val_k/39.10)
@@ -76,7 +78,7 @@ def app(PRODUCT_CATALOG):
             
             # 2. 전도도(Cond) 기반 TDS 타겟과 비교하여 부족분을 NaCl로 채우기
             current_tds = val_ca + val_mg + val_k + val_na + val_cl + (val_alk*1.22) + val_so4 + val_sio2 + val_fe
-            target_tds = val_cond * 0.65
+            target_tds = val_cond * COND_TO_TDS_FACTOR
             
             if target_tds > current_tds + 10:
                 diff_mg = target_tds - current_tds
@@ -198,7 +200,7 @@ def app(PRODUCT_CATALOG):
         op_y = st.slider("📅 운전 기간 시뮬레이션 (년)", 0.0, 10.0, 3.0, 0.5, key="y_s")
         if 'brine_tds_final' not in locals(): brine_tds_final = 1000 
         if 'cf_final' not in locals(): cf_final = 1.0 
-        base_cond = brine_tds_final / cf_final / 0.65 
+        base_cond = brine_tds_final / cf_final / COND_TO_TDS_FACTOR
         a_f = (1 - (a_rate_s / 100)) ** op_y; b_f = (1 + (b_rate_s / 100)) ** op_y
         p_f_res = curr_perm_flow * a_f; p_c_res = base_cond * b_f
         y_ax = np.linspace(0, 10, 21)
@@ -224,9 +226,11 @@ def app(PRODUCT_CATALOG):
         st.subheader("Step 3. 스케일 및 오염 정밀 진단 (Full Chemistry)")
         st.info("💡 **[3단계 완료]** 엑셀 파일의 모든 진단 항목(BaSO4, SrSO4, CaF2)을 포함한 **종합 진단 시스템**이 완성되었습니다.")
         if 'v_main' not in locals(): v_main = {}
-        if 'brine_ph_final' not in locals(): 
-            cf_temp = 1.0 / (1 - (in_rec/100)) if in_rec < 100 else 1.0
-            brine_ph_final = in_ph + (math.log10(cf_temp) * 0.7); cf_final = cf_temp
+        if 'brine_ph_final' not in locals():
+            # Tab1이 아직 안 돌았을 때도 임의 축약식 대신 실제 물리 모델(ro_concentration)을 그대로 재사용
+            fb_ion_dict = st.session_state.get('ro_ion_dict', {'pH': in_ph})
+            fb_result = ro_concentration(in_rec, in_ph, in_temp, fb_ion_dict)
+            cf_final = fb_result['cf']; brine_ph_final = fb_result['brine_ph']; brine_tds_final = fb_result['brine_tds']
         if 'brine_tds_final' not in locals(): brine_tds_final = 1000.0
         st.info(f"💡 진단 기준: 농축수 pH **{brine_ph_final:.2f}**, TDS **{brine_tds_final:.0f} ppm** (CF: {cf_final:.1f}배)")
 

@@ -2,13 +2,19 @@ import math
 import numpy as np
 from datetime import date, timedelta
 
-# [New Logic] 알칼리도(M-Alk) 기반 pH 예측 알고리즘
-def predict_ph_from_alkalinity(m_alk):
+# 전도도(Cond, µS/cm) → TDS(mg/L) 변환 계수.
+# 모든 모듈(cooling/RO)이 이 상수 하나만 참조하도록 통일해 모듈 간 계산 결과가 어긋나지 않게 한다.
+COND_TO_TDS_FACTOR = 0.65
+
+# [New Logic] 알칼리도(M-Alk) 기반 pH 예측 알고리즘 (수온 보정 포함)
+def predict_ph_from_alkalinity(m_alk, temp_c=25.0):
     alk_points = [0,  20,  50,  100, 150, 200, 300, 400, 500, 600, 800, 1000]
     ph_points  = [7.0, 7.2, 7.6, 8.0, 8.2, 8.3, 8.5, 8.7, 8.8, 8.9, 9.0, 9.1]
     if m_alk <= 0: return 7.0
-    predicted_ph = np.interp(m_alk, alk_points, ph_points)
-    return float(predicted_ph)
+    base_ph = np.interp(m_alk, alk_points, ph_points)
+    # 25도 기준 대비 수온 1도 상승마다 pH 약 0.011 하락 (ro_concentration과 동일한 보정식)
+    temp_correction = 0.011 * (temp_c - 25.0)
+    return float(base_ph - temp_correction)
 
 # [AI Deep Logic] 제안서 기반 맞춤형 진단 알고리즘 (Cooling)
 def get_cooling_deep_audit(lsi, rsi, cl_ion, so4, alk, ca_h, temp, holding_time, target_cl2, ph, 
@@ -147,7 +153,7 @@ def calculate_lsi(ph, tds, ca, alk, temp):
         d = math.log10(alk)
         phs = (9.3 + a + b) - (c + d)
         return ph - phs
-    except:
+    except (ValueError, TypeError):
         return 0.0
 
 # [엔진 2] 보일러 전문가 엔진 (안토인 식 적용 Ver)
@@ -268,6 +274,10 @@ def osmotic_pressure(v_main, temp, recovery, op_press, perm_press):
     }
 
 # 4️⃣ RO 전용 LSI 계산 함수 (개별 인자 수신형)
+# [의도된 차이] 일반 calculate_lsi()와 달리 b_ca*2.5, b_alk*0.82 보정이 들어간다.
+# RO 농축수(brine)는 일반 냉각수보다 이온강도가 훨씬 높아, 실제 활동도(activity)가
+# 표준 LSI 공식이 가정하는 저농도 수질보다 낮게 작동하는 것을 근사적으로 보정하기 위함.
+# 저농도 계에는 calculate_lsi(), 고농축 RO 농축수에는 이 함수를 쓴다.
 def calculate_ro_lsi(b_ca, b_alk, b_tds, temp, brine_ph):
     t_k = temp + 273.15
     f_a = (math.log10(b_tds) - 1) / 10.0 if b_tds > 10 else 0
@@ -281,41 +291,6 @@ def calculate_ro_lsi(b_ca, b_alk, b_tds, temp, brine_ph):
 # 🎯 WWT(폐수처리) 엔지니어링 계산 엔진
 # ------------------------------------------------------------
 
-def calc_biological_metrics(flow, toc_in, v_tank, mlss):
-    """
-    1️⃣ 생물학적 처리 진단 (F/M비 및 용적부하)
-    F/M비 = (Q * TOC) / (V * MLSS)
-    """
-    if v_tank <= 0 or mlss <= 0: return 0.0, 0.0
-    load_toc = flow * toc_in * 0.001  # kg/d
-    fm_ratio = load_toc / (v_tank * mlss * 0.001)
-    vol_load = load_toc / v_tank  # kg TOC/m3·d
-    return round(fm_ratio, 3), round(vol_load, 3)
-
-def calc_chemical_dosage(flow, dose_ppm, sg=1.2):
-    """
-    2️⃣ 화학적 응집제/중화제 소요량 계산 (비중 SG 반영)
-    Weight(kg/d) = Q * dose_ppm / 1000
-    Volume(L/d) = Weight / SG
-    """
-    weight_kg = (flow * dose_ppm) / 1000.0
-    volume_l = weight_kg / sg if sg > 0 else weight_kg
-    return round(weight_kg, 1), round(volume_l, 1)
-
-def calc_sludge_production(flow, ss_in, ss_out, cod_rem, yield_factor=0.4, water_content=0.8):
-    """
-    3️⃣ 슬러지 발생량 및 탈수 케이크 예측
-    이론적 발생량 = (SS제거량) + (Yield * COD제거량)
-    케이크량 = 건조슬러지 / (1 - 함수율)
-    """
-    ss_removed = (ss_in - ss_out) * flow * 0.001  # kg/d
-    bio_produced = (cod_rem * flow * 0.001) * yield_factor # 미생물 증식
-    total_dry_sludge = ss_removed + bio_produced
-    
-    # 함수율 반영 탈수 케이크량 (ton/d)
-    cake_amount = (total_dry_sludge / (1 - water_content)) / 1000.0
-    return round(total_dry_sludge, 1), round(cake_amount, 2)
-
 def calc_carbon_source(tn_to_remove, toc_available):
     """
     4️⃣ 탈질 탄소원 부족분 계산
@@ -327,32 +302,9 @@ def calc_carbon_source(tn_to_remove, toc_available):
     methanol_kg = shortage / 0.375
     return round(shortage, 1), round(methanol_kg, 1)
 
-def estimate_wwt_sdi(ss_conc, turbidity):
-    """
-    5️⃣ RO 재이용을 위한 SDI(Silt Density Index) 추산식
-    실무 약식 공식: SDI ≈ (SS * 0.5) + (Turb * 0.3) + 1.0
-    """
-    sdi_est = (ss_conc * 0.5) + (turbidity * 0.3) + 1.0
-    return round(min(sdi_est, 6.6), 1)
 # ------------------------------------------------------------
 # 🎯 WWT(폐수처리) 엔지니어링 고도화 엔진 (집대성본)
 # ------------------------------------------------------------
-
-# [수정/추가] wwt.py의 자동 판단을 위한 핵심 지표 산출 함수
-def get_wwt_engineering_indices(bod, cod, ss, tn, tp):
-    """
-    폐수 성상 분석을 통한 공정 판단 지표 산출
-    - bc_ratio: 생분해성 판단 (BOD/COD)
-    - n_ratio, p_ratio: 영양소 밸런스 분석
-    """
-    bc_ratio = bod / cod if cod > 0 else 0
-    n_ratio = (tn / bod * 100) if bod > 0 else 0
-    p_ratio = (tp / bod * 100) if bod > 0 else 0
-    return {
-        "bc_ratio": round(bc_ratio, 2),
-        "n_ratio": round(n_ratio, 1),
-        "p_ratio": round(p_ratio, 1)
-    }
 
 def calc_biological_metrics(flow, toc_in, v_tank, mlss):
     """1️⃣ 생물학적 처리 진단 (F/M비 및 용적부하)"""

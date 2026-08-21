@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import math
-from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit
+from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit, COND_TO_TDS_FACTOR
 def interpolate(value, x_min, x_max, y_min, y_max):
     """구간 내 선형 보간 함수 (Linear Interpolation)"""
     if value <= x_min: return y_min
@@ -202,7 +202,7 @@ def app(PRODUCT_CATALOG):
                 except: base_alk = 50.0
                 cycle_alk = base_alk * target_coc
                 if cycle_alk < 1: cycle_alk = 1.0
-                est_ph = predict_ph_from_alkalinity(cycle_alk)
+                est_ph = predict_ph_from_alkalinity(cycle_alk, sim_temp)
                 phase_msg = "AI Prediction (Chart Logic)"
                 target_ph = st.number_input(f"Predicted pH ({phase_msg})", value=float(f"{est_ph:.2f}"), disabled=True)
             
@@ -223,15 +223,9 @@ def app(PRODUCT_CATALOG):
                     pred_alk = mu_dict['M-Alk (ppm)'] * target_coc
                     pred_so4 = mu_dict['SO4 (ppm)'] * target_coc
 
-                temp_k = sim_temp + 273.15
-                tds_val = pred_cond * 0.7
-                val_a = (math.log10(max(tds_val, 1)) - 1) / 10
-                val_b = -13.12 * math.log10(temp_k) + 34.55
-                val_c = math.log10(max(pred_ca, 1)) - 0.4
-                val_d = math.log10(max(pred_alk, 1))
-                pHs = (9.3 + val_a + val_b) - (val_c + val_d)
-                lsi_bulk = calculate_lsi(target_ph, pred_cond * 0.7, pred_ca, pred_alk, sim_temp)
-                lsi_skin = calculate_lsi(target_ph, pred_cond * 0.7, pred_ca, pred_alk, sim_temp + skin_offset)
+                lsi_bulk = calculate_lsi(target_ph, pred_cond * COND_TO_TDS_FACTOR, pred_ca, pred_alk, sim_temp)
+                lsi_skin = calculate_lsi(target_ph, pred_cond * COND_TO_TDS_FACTOR, pred_ca, pred_alk, sim_temp + skin_offset)
+                pHs = target_ph - lsi_bulk  # calculate_lsi()가 이미 계산한 pHs를 역산해 재사용 (중복 계산 제거)
                 rsi = (2 * pHs) - target_ph
                 p_eq = 1.465 * math.log10(max(pred_alk, 1)) + 4.54
                 psi = (2 * pHs) - p_eq
@@ -311,15 +305,10 @@ def app(PRODUCT_CATALOG):
             for coc in cycles_range:
                 pred_alk_c = mu_alk * coc
                 if pred_alk_c < 1: pred_alk_c = 1
-                pred_ph_c = predict_ph_from_alkalinity(pred_alk_c)
-                pred_tds_c = mu_cond * coc * 0.7
+                pred_ph_c = predict_ph_from_alkalinity(pred_alk_c, temp_c)
                 pred_ca_c = mu_ca * coc
-                val_a = (math.log10(max(pred_tds_c, 1)) - 1) / 10
-                val_b = -13.12 * math.log10(temp_c + 273.15) + 34.55
-                val_c = math.log10(max(pred_ca_c, 1)) - 0.4
-                val_d = math.log10(max(pred_alk_c, 1))
-                pHs_c = (9.3 + val_a + val_b) - (val_c + val_d)
-                lsi_c = pred_ph_c - pHs_c
+                lsi_c = calculate_lsi(pred_ph_c, mu_cond * coc * COND_TO_TDS_FACTOR, pred_ca_c, pred_alk_c, temp_c)
+                pHs_c = pred_ph_c - lsi_c  # calculate_lsi()가 이미 계산한 pHs를 역산해 재사용 (중복 계산 제거)
                 p_eq_c = 1.465 * math.log10(max(pred_alk_c, 1)) + 4.54
                 psi_c = (2 * pHs_c) - p_eq_c
                 sim_data.append({"Cycles": coc, "LSI": lsi_c, "PSI": psi_c, "pH": pred_ph_c})
