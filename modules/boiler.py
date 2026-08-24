@@ -610,13 +610,13 @@ def app(PRODUCT_CATALOG):
             st.caption("미국기계학회 권장치 (압력 단위: MPa / psig). 보일러수(Boiler Water) 기준")
             
             asme_df = pd.DataFrame([
-                {"Pressure (MPa)": "0 - 2.07", "Range (psig)": "0 - 300", "SiO2 (ppm)": "≤ 150", "Alk (ppm)": "< 700", "Cond (µS)": "1100-5400"},
-                {"Pressure (MPa)": "2.08 - 3.10", "Range (psig)": "301 - 450", "SiO2 (ppm)": "≤ 90", "Alk (ppm)": "< 600", "Cond (µS)": "900-4600"},
-                {"Pressure (MPa)": "3.11 - 4.14", "Range (psig)": "451 - 600", "SiO2 (ppm)": "≤ 40", "Alk (ppm)": "< 500", "Cond (µS)": "800-3800"},
-                {"Pressure (MPa)": "4.15 - 5.17", "Range (psig)": "601 - 750", "SiO2 (ppm)": "≤ 30", "Alk (ppm)": "< 400", "Cond (µS)": "300-1500"},
-                {"Pressure (MPa)": "5.18 - 6.21", "Range (psig)": "751 - 900", "SiO2 (ppm)": "≤ 20", "Alk (ppm)": "< 300", "Cond (µS)": "200-1200"},
-                {"Pressure (MPa)": "6.22 - 6.89", "Range (psig)": "901 - 1000", "SiO2 (ppm)": "≤ 8", "Alk (ppm)": "< 200", "Cond (µS)": "200-1000"},
-                {"Pressure (MPa)": "6.90 - 10.34", "Range (psig)": "1001 - 1500", "SiO2 (ppm)": "≤ 2", "Alk (ppm)": "0", "Cond (µS)": "≤ 150"},
+                {"Pressure (MPa)": "0 - 2.07", "Range (psig)": "0 - 300", "SiO2 (ppm)": "≤ 150", "Alk (ppm)": "< 350", "Cond (µS)": "1100-5400"},
+                {"Pressure (MPa)": "2.08 - 3.10", "Range (psig)": "301 - 450", "SiO2 (ppm)": "≤ 90", "Alk (ppm)": "< 300", "Cond (µS)": "900-4600"},
+                {"Pressure (MPa)": "3.11 - 4.14", "Range (psig)": "451 - 600", "SiO2 (ppm)": "≤ 40", "Alk (ppm)": "< 250", "Cond (µS)": "800-3800"},
+                {"Pressure (MPa)": "4.15 - 5.17", "Range (psig)": "601 - 750", "SiO2 (ppm)": "≤ 30", "Alk (ppm)": "< 200", "Cond (µS)": "300-1500"},
+                {"Pressure (MPa)": "5.18 - 6.21", "Range (psig)": "751 - 900", "SiO2 (ppm)": "≤ 20", "Alk (ppm)": "< 150", "Cond (µS)": "200-1200"},
+                {"Pressure (MPa)": "6.22 - 6.89", "Range (psig)": "901 - 1000", "SiO2 (ppm)": "≤ 8", "Alk (ppm)": "< 100", "Cond (µS)": "200-1000"},
+                {"Pressure (MPa)": "6.90 - 10.34", "Range (psig)": "1001 - 1500", "SiO2 (ppm)": "≤ 2", "Alk (ppm)": "NS", "Cond (µS)": "≤ 150"},
             ])
             st.dataframe(
                 asme_df, 

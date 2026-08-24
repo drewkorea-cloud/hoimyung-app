@@ -165,6 +165,57 @@ def calculate_larson_skold(cl_ppm, so4_ppm, alk_ppm):
     epm_alk = alk_ppm / 50.0
     return (epm_cl + epm_so4) / epm_alk
 
+# 부식쿠폰(Corrosion Coupon) 실측치(mpy) 등급 판정 — 담수 냉각수 시스템 업계 표준 구간 기준
+def evaluate_corrosion_coupon(ms_mpy, cu_mpy):
+    def grade_ms(v):
+        if v < 1.0: return ("우수", "good")
+        if v < 3.0: return ("양호", "good")
+        if v < 5.0: return ("보통", "caution")
+        return ("불량", "bad")
+    def grade_cu(v):
+        if v < 0.2: return ("우수", "good")
+        if v < 0.5: return ("양호", "good")
+        if v < 1.0: return ("높음", "caution")
+        return ("불량", "bad")
+    ms_grade, ms_sev = grade_ms(ms_mpy)
+    cu_grade, cu_sev = grade_cu(cu_mpy)
+    return {
+        "ms": {"mpy": ms_mpy, "grade": ms_grade, "severity": ms_sev},
+        "cu": {"mpy": cu_mpy, "grade": cu_grade, "severity": cu_sev},
+    }
+
+# 통합 스트레스 지수 — LSI/RSI/PSI/Larson-Skold 4개 지수를 0~100 점 하나로 압축.
+# 날코 3D TRASAR가 여러 지표 대신 '하나의 점수'로 상태를 보여주는 방식을 참고해 만든
+# 자체 가중합산 로직이며, 날코의 특허 알고리즘(NSI)을 재현한 것이 아닌 참고용 점수다.
+def calculate_stress_index(lsi, rsi, psi, ls_idx):
+    def band_risk(value, safe_lo, safe_hi, danger_lo, danger_hi):
+        if safe_lo <= value <= safe_hi:
+            return 0.0
+        if value < safe_lo:
+            if value <= danger_lo: return 100.0
+            return (safe_lo - value) / (safe_lo - danger_lo) * 100.0
+        else:
+            if value >= danger_hi: return 100.0
+            return (value - safe_hi) / (danger_hi - safe_hi) * 100.0
+
+    risk_lsi = band_risk(lsi, -0.5, 0.5, -2.5, 2.5)
+    risk_rsi = band_risk(rsi, 5.0, 6.0, 4.0, 8.5)
+    risk_psi = band_risk(psi, 5.0, 6.0, 4.0, 7.0)
+    risk_ls  = band_risk(ls_idx, 0.0, 0.8, 0.0, 1.2)
+
+    score = (risk_lsi * 0.30) + (risk_rsi * 0.20) + (risk_psi * 0.20) + (risk_ls * 0.30)
+    score = round(min(100.0, max(0.0, score)), 1)
+
+    if score < 25: band = "안정"
+    elif score < 50: band = "주의"
+    elif score < 75: band = "경고"
+    else: band = "위험"
+
+    return {
+        "score": score, "band": band,
+        "breakdown": {"LSI": round(risk_lsi, 1), "RSI": round(risk_rsi, 1), "PSI": round(risk_psi, 1), "L-S": round(risk_ls, 1)}
+    }
+
 # [엔진 2] 보일러 전문가 엔진 (안토인 식 적용 Ver)
 class Boiler_Expert_Engine:
     @staticmethod

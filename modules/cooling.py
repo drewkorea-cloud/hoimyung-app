@@ -4,7 +4,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import math
-from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit, COND_TO_TDS_FACTOR, calculate_larson_skold
+from utils.calculations import predict_ph_from_alkalinity, calculate_lsi, get_cooling_deep_audit, COND_TO_TDS_FACTOR, calculate_larson_skold, evaluate_corrosion_coupon, calculate_stress_index
+from utils.report import generate_cooling_report_docx
+from datetime import datetime
 def interpolate(value, x_min, x_max, y_min, y_max):
     """구간 내 선형 보간 함수 (Linear Interpolation)"""
     if value <= x_min: return y_min
@@ -272,6 +274,18 @@ def app(PRODUCT_CATALOG):
                     st.error("🚨 **관리 기준 초과 경보**")
                     for w in warnings: st.write(w)
             else: st.success("✅ **Stable Operation** (특이사항 없음)")
+
+            stress = calculate_stress_index(res['lsi'], res['rsi'], res['psi'], res['ls_idx'])
+            stress_color = {"안정": "normal", "주의": "normal", "경고": "inverse", "위험": "inverse"}[stress['band']]
+            with st.container(border=True):
+                sc1, sc2 = st.columns([1, 2.2])
+                with sc1:
+                    st.metric("🧭 통합 스트레스 지수", f"{stress['score']:.0f} / 100", stress['band'], delta_color=stress_color,
+                              help="LSI/RSI/PSI/L-S 4개 지수를 가중합산한 자체 참고 지표입니다 (날코 NSI를 그대로 재현한 것은 아닙니다).")
+                with sc2:
+                    st.progress(min(stress['score'] / 100.0, 1.0))
+                    st.caption(f"기여도 — LSI {stress['breakdown']['LSI']:.0f} · RSI {stress['breakdown']['RSI']:.0f} · PSI {stress['breakdown']['PSI']:.0f} · L-S {stress['breakdown']['L-S']:.0f} (100점 만점 환산)")
+
             st.markdown("#### 🧭 5대 핵심 지수 진단 (Skin Temp 반영)")
             m1, m2, m3, m4, m5 = st.columns(5)
             lsi = res['lsi']
@@ -461,9 +475,10 @@ def app(PRODUCT_CATALOG):
         st.markdown("수질/미생물 분석 및 스케일 경향에 따른 **최적 약품(Inhibitor/Biocide)**을 선정합니다.")
         if st.session_state.get('run_simulation') and 'sim_results' in st.session_state:
             sim = st.session_state.sim_results
-            real_lsi = sim.get('lsi', 1.5); real_rsi = sim.get('rsi', 6.0); real_cl = sim.get('Cl (ppm)', 100.0)
-            real_so4 = sim.get('SO4 (ppm)', 50.0); real_alk = sim.get('M-Alk (ppm)', 100.0); real_ca = sim.get('Ca-H (ppm)', 200.0)
+            real_lsi = sim.get('lsi', 1.5); real_rsi = sim.get('rsi', 6.0); real_cl = sim.get('pred_cl', 100.0)
+            real_so4 = sim.get('pred_so4', 50.0); real_alk = sim.get('pred_alk', 100.0); real_ca = sim.get('pred_ca', 200.0)
             real_ph = sim.get('target_ph', 8.2); real_temp = st.session_state.get('sim_temp', 30.0)
+            real_psi = sim.get('psi', 5.5); real_ls_idx = sim.get('ls_idx', 0.5)
             try:
                 bd_rate = st.session_state.get('final_blowdown', 0.0); sys_vol_val = st.session_state.get('vol_m3', 100.0)
                 real_ht = sys_vol_val / bd_rate if bd_rate > 0 else 48.0
@@ -472,6 +487,7 @@ def app(PRODUCT_CATALOG):
         else:
             real_lsi, real_rsi = 2.0, 5.0; real_cl, real_so4 = 150.0, 80.0
             real_alk, real_ca = 100.0, 200.0; real_ph, real_temp = 8.2, 30.0; real_ht = 24.0
+            real_psi, real_ls_idx = 5.5, 0.5
             data_status = "⚠️ 기본값 (시뮬레이션 미실행)"
         
         with st.expander("🔎 **[현장 진단] 수질 및 미생물 측정값 입력 (Optional)**", expanded=True):
@@ -480,6 +496,22 @@ def app(PRODUCT_CATALOG):
             with f_col2: meas_bacteria = st.number_input("일반세균 (CFU/mL)", value=0, step=1000, help="최근 측정된 세균수")
             with f_col3: meas_srb = st.checkbox("SRB(황산염환원균) 검출", help="검출 시 체크")
             with f_col4: meas_ph = st.number_input("실측 pH", value=0.0, step=0.1, help="현장 측정 pH (비교용)")
+
+            st.markdown("###### 🧪 부식쿠폰 실측치 (Corrosion Coupon, mpy)")
+            cp_col1, cp_col2, cp_col3 = st.columns([1, 1, 2])
+            with cp_col1: meas_ms_mpy = st.number_input("Mild Steel (mpy)", value=0.0, step=0.1, min_value=0.0, help="부식쿠폰 랙에서 회수한 연강 쿠폰의 실측 부식률")
+            with cp_col2: meas_cu_mpy = st.number_input("Copper (mpy)", value=0.0, step=0.05, min_value=0.0, help="부식쿠폰 랙에서 회수한 동 쿠폰의 실측 부식률")
+            coupon_result = None
+            if meas_ms_mpy > 0 or meas_cu_mpy > 0:
+                coupon_result = evaluate_corrosion_coupon(meas_ms_mpy, meas_cu_mpy)
+                with cp_col3:
+                    sev_icon = {"good": "✅", "caution": "⚠️", "bad": "🚨"}
+                    st.markdown(
+                        f"{sev_icon[coupon_result['ms']['severity']]} **MS {meas_ms_mpy:.1f} mpy → {coupon_result['ms']['grade']}**"
+                        f"&nbsp;&nbsp;|&nbsp;&nbsp;"
+                        f"{sev_icon[coupon_result['cu']['severity']]} **Cu {meas_cu_mpy:.2f} mpy → {coupon_result['cu']['grade']}**"
+                    )
+                    st.caption("기준: MS 우수<1.0·양호<3.0·보통<5.0 / Cu 우수<0.2·양호<0.5·높음<1.0 mpy (담수 냉각수 업계 표준)")
         col_set1, col_set2 = st.columns([1, 2])
         with col_set1: target_cl2 = st.number_input("운전 관리 잔류염소 (ppm)", value=0.2, step=0.1, help="살균을 위해 유지할 잔류염소 농도입니다. 0.5ppm 이상이면 HEDP 분해 경고가 뜹니다.")
         with col_set2: st.info(f"💡 현재 설정된 잔류염소 농도는 **{target_cl2} ppm** 입니다. (0으로 설정 시 경고 해제)")
@@ -493,7 +525,22 @@ def app(PRODUCT_CATALOG):
                 elif "⚠️" in log or "🐢" in log or "💸" in log or "🔵" in log: st.warning(log)
                 elif "✅" in log: st.success(log)
                 else: st.write(log)
-        
+
+        if coupon_result:
+            predicted_corrosive = real_lsi < 0 or real_rsi > 8.5
+            ms_bad = coupon_result['ms']['severity'] == 'bad'
+            cu_bad = coupon_result['cu']['severity'] == 'bad'
+            with st.container(border=True):
+                st.markdown("###### 🔬 예측 지수 vs 실측 부식쿠폰 비교")
+                if predicted_corrosive and not (ms_bad or cu_bad):
+                    st.info("💡 LSI/RSI는 부식성 수질로 예측했지만, 실측 부식쿠폰은 양호합니다. 현재 방식제 프로그램이 잘 작동 중일 가능성이 높습니다.")
+                elif not predicted_corrosive and (ms_bad or cu_bad):
+                    st.warning("⚠️ 지수상으로는 안정 범위인데 실측 부식쿠폰이 불량합니다. 지수가 놓친 국부부식(Pitting)·미생물 부식 등 다른 원인을 점검하세요.")
+                elif predicted_corrosive and (ms_bad or cu_bad):
+                    st.error("🚨 예측 지수와 실측 쿠폰이 모두 부식 위험을 가리킵니다. 방식제 프로그램 재점검이 시급합니다.")
+                else:
+                    st.success("✅ 예측 지수와 실측 부식쿠폰이 모두 안정 범위로 일치합니다.")
+
         cooling_db = PRODUCT_CATALOG.get('Cooling', {})
         inh_list = cooling_db.get('Main_Inhibitor', []); disp_list = cooling_db.get('Dispersant', []); bio_list = cooling_db.get('Biocide', [])
         if not inh_list: st.error("🚨 약품 DB 로드 실패"); st.stop()
@@ -680,6 +727,61 @@ def app(PRODUCT_CATALOG):
                 st.info("밀폐계는 배수가 없으므로, 전체 보유수량에 대한 **1회 초기 투입량**입니다.")
             else:
                 st.write("밀폐계 제품을 선택해주세요.")
+
+        st.divider()
+        st.markdown("### 📋 현장 서비스 리포트")
+        st.caption("지금까지 입력·계산된 값을 한 장짜리 Word 리포트로 내려받습니다.")
+
+        report_stress = calculate_stress_index(real_lsi, real_rsi, real_psi, real_ls_idx)
+
+        report_coupon_comment = None
+        if coupon_result:
+            predicted_corrosive = real_lsi < 0 or real_rsi > 8.5
+            ms_bad = coupon_result['ms']['severity'] == 'bad'
+            cu_bad = coupon_result['cu']['severity'] == 'bad'
+            if predicted_corrosive and not (ms_bad or cu_bad):
+                report_coupon_comment = "예측 지수는 부식성으로 나왔으나 실측 쿠폰은 양호 — 현재 방식제 프로그램이 유효한 것으로 판단됨."
+            elif not predicted_corrosive and (ms_bad or cu_bad):
+                report_coupon_comment = "지수상 안정 범위이나 실측 쿠폰 불량 — 국부부식/미생물 부식 등 지수가 반영 못하는 원인 점검 필요."
+            elif predicted_corrosive and (ms_bad or cu_bad):
+                report_coupon_comment = "예측 지수와 실측 쿠폰이 모두 부식 위험 — 방식제 프로그램 재점검 시급."
+            else:
+                report_coupon_comment = "예측 지수와 실측 쿠폰이 모두 안정 범위로 일치."
+
+        chem_rows = [{
+            "category": "주처리제 (Inhibitor)", "product": sel_inh,
+            "ingredient": sel_inh_data.get('Main_Ingredient', '-'), "dosage": inh_dose, "daily_kg": usage_inh
+        }]
+        if disp_list:
+            chem_rows.append({
+                "category": "분산제 (Dispersant)", "product": sel_disp,
+                "ingredient": sel_disp_data.get('Main_Ingredient', '-'), "dosage": disp_dose, "daily_kg": usage_disp
+            })
+        if bio_list:
+            chem_rows.append({
+                "category": "살균제 (Biocide)", "product": sel_bio,
+                "ingredient": sel_bio_data.get('Main_Ingredient', '-'), "dosage": bio_dose, "daily_kg": usage_bio
+            })
+        if closed_list:
+            chem_rows.append({
+                "category": "밀폐계 (Closed, 초기투입)", "product": sel_closed,
+                "ingredient": sel_closed_data.get('Main_Ingredient', '-'), "dosage": closed_dose, "daily_kg": usage_closed_init
+            })
+
+        report_bytes = generate_cooling_report_docx({
+            "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M'),
+            "temp": real_temp, "ph": real_ph, "coc": st.session_state.sim_results.get('target_coc', 0) if st.session_state.get('run_simulation') else 0,
+            "lsi": real_lsi, "lsi_skin": st.session_state.sim_results.get('lsi_skin', real_lsi) if st.session_state.get('run_simulation') else real_lsi,
+            "rsi": real_rsi, "psi": real_psi, "ls_idx": real_ls_idx,
+            "stress": report_stress,
+            "coupon": coupon_result, "coupon_comment": report_coupon_comment,
+            "chem_rows": chem_rows, "rec_reason": rec_reason,
+        })
+        st.download_button(
+            "📥 현장 리포트 다운로드 (.docx)", data=report_bytes,
+            file_name=f"냉각수_서비스리포트_{datetime.now().strftime('%Y%m%d')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
     with tab5:
         st.header("🔬 Deposit Analysis (ICP-OES Data Analysis)")
